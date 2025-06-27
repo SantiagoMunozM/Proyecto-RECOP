@@ -87,7 +87,7 @@ class RECOPSimulator:
         self.create_welcome_section(main_container)
         
         # File operations section
-        self.create_file_section(main_container)
+        self.create_file_upload_section(main_container)
         
         # Database operations section
         self.create_database_section(main_container)
@@ -113,43 +113,87 @@ class RECOPSimulator:
         )
         welcome_label.pack()
     
-    def create_file_section(self, parent):
-        """Create file operations section"""
-        file_frame = ttk.LabelFrame(parent, text="Operaciones de Archivo", padding="15")
-        file_frame.pack(fill=tk.X, pady=(0, 15))
+    
+        # Replace the create_file_upload_section method in app.py:
+    
+    def create_file_upload_section(self, parent):
+        """Create file upload section"""
+        upload_frame = ttk.LabelFrame(parent, text="Cargar Datos", padding="15")
+        upload_frame.pack(fill=tk.X, pady=(0, 15))
         
-        # File selection row
-        select_row = ttk.Frame(file_frame)
-        select_row.pack(fill=tk.X, pady=(0, 10))
+        # Instructions
+        instructions = ttk.Label(upload_frame, 
+                               text="Cargue archivos CSV con datos académicos o vincule datos personales de profesores:",
+                               font=("Arial", 11))
+        instructions.pack(pady=(0, 10))
         
-        self.select_file_btn = ttk.Button(
-            select_row,
-            text="📁 Seleccionar Archivo CSV",
+        # Sub-instructions for each button
+        sub_instructions_frame = tk.Frame(upload_frame)
+        sub_instructions_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        # Left side - Academic data
+        left_frame = tk.Frame(sub_instructions_frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        tk.Label(left_frame, text="📄 CSV Académico:", font=("Arial", 9, "bold")).pack(anchor=tk.W)
+        tk.Label(left_frame, text="Datos de materias, secciones, profesores y sesiones", 
+                 font=("Arial", 8), fg="gray").pack(anchor=tk.W)
+        
+        # Right side - Personal data
+        right_frame = tk.Frame(sub_instructions_frame)
+        right_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        tk.Label(right_frame, text="👥 Datos Personales:", font=("Arial", 9, "bold")).pack(anchor=tk.W)
+        tk.Label(right_frame, text="Información adicional de empleados (requiere DB existente)", 
+                 font=("Arial", 8), fg="gray").pack(anchor=tk.W)
+        
+        # Buttons container
+        buttons_container = tk.Frame(upload_frame)
+        buttons_container.pack(fill=tk.X)
+        
+        # FIXED: Academic CSV buttons - separate select and process
+        # Select CSV button
+        self.select_csv_btn = ttk.Button(
+            buttons_container,
+            text="� Seleccionar CSV",
             command=self.select_csv_file,
             style="Blue.TButton"
         )
-        self.select_file_btn.pack(side=tk.LEFT)
+        self.select_csv_btn.pack(side=tk.LEFT, padx=(0, 5))
         
-        # File path display
-        self.file_path_var = tk.StringVar(value="Ningún archivo seleccionado")
-        self.file_path_label = ttk.Label(
-            file_frame,
-            textvariable=self.file_path_var,
-            font=("Arial", 9),
-            foreground="gray"
-        )
-        self.file_path_label.pack(anchor=tk.W, pady=(0, 10))
-        
-        # Process button
-        self.process_btn = ttk.Button(
-            file_frame,
-            text="⚙️ Procesar Archivo",
+        # Process CSV button (initially disabled)
+        self.process_csv_btn = ttk.Button(
+            buttons_container,
+            text="⚙️ Procesar CSV",
             command=self.process_csv,
             state="disabled",
             style="Green.TButton"
         )
-        self.process_btn.pack(anchor=tk.W)
-    
+        self.process_csv_btn.pack(side=tk.LEFT, padx=(0, 15))
+        
+        # Personal data upload button
+        self.upload_personal_btn = ttk.Button(
+            buttons_container,
+            text="👥 Vincular Datos Personales",
+            command=self.upload_personal_data,
+            state="disabled",
+            style="Teal.TButton"
+        )
+        self.upload_personal_btn.pack(side=tk.LEFT)
+        
+        # File info display
+        self.file_info_var = tk.StringVar(value="Ningún archivo seleccionado")
+        file_info_label = ttk.Label(upload_frame, textvariable=self.file_info_var, 
+                                   font=("Arial", 10), foreground="gray")
+        file_info_label.pack(pady=(15, 0))
+        
+        # Progress bar
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = ttk.Progressbar(upload_frame, variable=self.progress_var, 
+                                           maximum=100, style="Blue.Horizontal.TProgressbar")
+        self.progress_bar.pack(fill=tk.X, pady=(10, 0))
+        self.progress_bar.pack_forget()  # Initially hidden        
+        
     def create_database_section(self, parent):
         """Create database operations section"""
         db_frame = ttk.LabelFrame(parent, text="Operaciones de Base de Datos", padding="15")
@@ -269,7 +313,15 @@ class RECOPSimulator:
             style="Green.TButton"
         )
         self.materia_sections_btn.pack(side=tk.LEFT, padx=(0, 5))
-       
+    
+        self.dept_professors_btn = ttk.Button(
+            query_row,
+            text="🏢 Profesores por Departamento",
+            command=self.query_department_professors,
+            state="disabled",
+            style="Green.TButton"
+        )
+        self.dept_professors_btn.pack(side=tk.LEFT, padx=(0, 5))      
         
     
     def create_status_bar(self):
@@ -327,8 +379,9 @@ class RECOPSimulator:
         """Enable all database operation buttons"""
         buttons = [
             'view_tables_btn', 'stats_btn', 'backup_btn', 'search_btn', 'reset_btn',
-            'prof_sessions_btn', 'prof_sections_btn', 'materia_sections_btn', 
-            'create_departamento_btn', 'create_profesor_btn', 'create_materia_btn', 'create_seccion_btn'
+            'prof_sessions_btn', 'prof_sections_btn', 'materia_sections_btn', 'dept_professors_btn',
+            'create_departamento_btn', 'create_profesor_btn', 'create_materia_btn', 'create_seccion_btn',
+            'upload_personal_btn'
         ]
         
         for btn_name in buttons:
@@ -339,13 +392,16 @@ class RECOPSimulator:
         """Disable all database operation buttons"""
         buttons = [
             'view_tables_btn', 'stats_btn', 'backup_btn', 'search_btn',
-            'prof_sessions_btn', 'prof_sections_btn','materia_sections_btn', 
-            'create_departamento_btn', 'create_profesor_btn', 'create_materia_btn', 'create_seccion_btn'
+            'prof_sessions_btn', 'prof_sections_btn','materia_sections_btn', 'dept_professors_btn',
+            'create_departamento_btn', 'create_profesor_btn', 'create_materia_btn', 'create_seccion_btn',
+            'upload_personal_btn'
         ]
         
         for btn_name in buttons:
             if hasattr(self, btn_name):
                 getattr(self, btn_name).config(state="disabled")
+    
+        # Replace the select_csv_file method in app.py:
     
     def select_csv_file(self):
         """Open file dialog to select CSV file"""
@@ -372,13 +428,19 @@ class RECOPSimulator:
             filename = os.path.basename(file_path)
             file_size = FileHelpers.get_file_size_mb(file_path)
             
-            self.file_path_var.set(f"📄 {filename} ({file_size:.1f} MB)")
-            self.process_btn.config(state="normal")
+            # Update file info display
+            self.file_info_var.set(f"📄 {filename} ({file_size:.1f} MB) - Listo para procesar")
+            
+            # Enable process button
+            self.process_csv_btn.config(state="normal")
+            
+            # Update status
             self.status_var.set("Archivo CSV seleccionado - Listo para procesar")
+    
     
     def process_csv(self):
         """Process the selected CSV file"""
-        if not self.csv_file_path:
+        if not hasattr(self, 'csv_file_path') or not self.csv_file_path:
             UIHelpers.show_error(self.root, "Error", "Por favor seleccione un archivo CSV primero")
             return
         
@@ -398,6 +460,14 @@ class RECOPSimulator:
                 f"{warning_msg}\n\n¿Desea continuar con el procesamiento?"
             ):
                 return
+        
+        # Show progress bar
+        self.progress_bar.pack(fill=tk.X, pady=(10, 0))
+        self.progress_var.set(0)
+        
+        # Disable buttons during processing
+        self.select_csv_btn.config(state="disabled")
+        self.process_csv_btn.config(state="disabled")
         
         # Create progress dialog
         progress = ProgressDialog(self.root, "Procesando archivo CSV", "Iniciando procesamiento...")
@@ -433,6 +503,13 @@ class RECOPSimulator:
                 self.status_var.set("Archivo procesado exitosamente")
                 self.db_status_var.set("BD: Actualizada")
                 
+                # Update file info
+                self.file_info_var.set(f"Base de datos activa - {sum(stats.values())} registros totales")
+                
+                # Reset for next file
+                self.csv_file_path = None
+                self.process_csv_btn.config(state="disabled")
+                
             else:
                 UIHelpers.show_error(
                     self.root, 
@@ -443,6 +520,13 @@ class RECOPSimulator:
         except Exception as e:
             progress.close()
             UIHelpers.show_error(self.root, "Error", f"Error inesperado: {str(e)}")
+        
+        finally:
+            # Re-enable buttons and hide progress bar
+            self.select_csv_btn.config(state="normal")
+            if hasattr(self, 'csv_file_path') and self.csv_file_path:
+                self.process_csv_btn.config(state="normal")
+            self.progress_bar.pack_forget()
     
     def view_database_tables(self):
         """Open database viewer window"""
@@ -558,7 +642,16 @@ class RECOPSimulator:
             MateriaSectionsDialog(self.root, self.db_manager)
         except Exception as e:
             messagebox.showerror("Error", f"Error al abrir diálogo de secciones de materia: {str(e)}")
-
+            
+        # Add this method to the RECOPSimulator class:
+    
+    def query_department_professors(self):
+        """Open department professors query dialog"""
+        try:
+            from ui_components import DepartmentProfessorsDialog
+            DepartmentProfessorsDialog(self.root, self.db_manager)
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al abrir diálogo de profesores por departamento: {str(e)}")
        
     def show_about(self):
         """Show about dialog"""
@@ -575,6 +668,37 @@ class RECOPSimulator:
         )
         
         UIHelpers.show_info(self.root, "Acerca del Simulador RECOP", about_text)
+    
+    
+    # Add this new method to the RECOPSimulator class in app.py:
+    
+    def upload_personal_data(self):
+        """Upload and process personal data CSV file"""
+        if not self.db_manager:
+            messagebox.showerror("Error", "No hay una base de datos activa.")
+            return
+        
+        try:
+            from ui_components import PersonalDataLinkingDialog
+            
+            def linking_callback():
+                # Refresh database status after linking
+                self.check_existing_database()
+                self.status_var.set("Datos personales procesados exitosamente")
+                
+                # Update file info display
+                try:
+                    stats = self.db_manager.get_database_stats()
+                    with_personal = stats['total_profesores'] - len(self.db_manager.get_professors_without_personal_data())
+                    self.file_info_var.set(f"Base de datos activa - {with_personal}/{stats['total_profesores']} profesores con datos personales")
+                except:
+                    self.file_info_var.set("Base de datos activa - Datos personales actualizados")
+            
+            # Open the personal data linking dialog
+            PersonalDataLinkingDialog(self.root, self.db_manager, linking_callback)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al procesar datos personales: {str(e)}")
 
 def main():
     """Main function to run the application"""

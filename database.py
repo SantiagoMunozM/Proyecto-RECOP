@@ -27,7 +27,12 @@ class DatabaseManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nombres TEXT NOT NULL,
                 apellidos TEXT NOT NULL,
-                tipo TEXT
+                tipo TEXT,
+                person_id INTEGER,
+                cargo_original TEXT,
+                subcategoria INTEGER,
+                fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                datos_personales_vinculados BOOLEAN DEFAULT FALSE
             )
             ''')
             
@@ -380,7 +385,69 @@ class DatabaseManager:
                 conn.rollback()
                 conn.close()
             return False
+        # Add these methods to the DatabaseManager class:
     
+    def update_professor_personal_data(self, profesor_id: int, person_id: int, 
+                                     cargo_original: str, tipo_enhanced: str, 
+                                     subcategoria: int = None):
+        """Update professor with personal data information"""
+        try:
+            self.execute_query("""
+                UPDATE Profesor 
+                SET person_id = ?, 
+                    cargo_original = ?, 
+                    tipo = ?, 
+                    subcategoria = ?, 
+                    fecha_actualizacion = CURRENT_TIMESTAMP,
+                    datos_personales_vinculados = TRUE
+                WHERE id = ?
+            """, (person_id, cargo_original, tipo_enhanced, subcategoria, profesor_id))
+            return True
+        except Exception as e:
+            print(f"Error updating professor personal data: {e}")
+            return False
+    
+    def get_professors_without_personal_data(self):
+        """Get professors that haven't been linked to personal data yet"""
+        return self.execute_query("""
+            SELECT id, nombres, apellidos, tipo 
+            FROM Profesor 
+            WHERE datos_personales_vinculados = FALSE OR datos_personales_vinculados IS NULL
+            ORDER BY apellidos, nombres
+        """)
+    
+    def get_enhanced_professor_info(self, profesor_id: int):
+        """Get professor with enhanced personal data information"""
+        result = self.execute_query("""
+            SELECT id, nombres, apellidos, tipo,
+                   person_id, cargo_original, subcategoria, 
+                   fecha_actualizacion, datos_personales_vinculados
+            FROM Profesor 
+            WHERE id = ?
+        """, (profesor_id,), fetch_one=True)
+        
+        if result:
+            return {
+                'id': result[0],
+                'nombres': result[1],
+                'apellidos': result[2],
+                'tipo': result[3],
+                'person_id': result[4],
+                'cargo_original': result[5],
+                'subcategoria': result[6],
+                'fecha_actualizacion': result[7],
+                'datos_personales_vinculados': result[8]
+            }
+        return None
+    
+    def get_professors_with_personal_data(self):
+        """Get all professors that have been enhanced with personal data"""
+        return self.execute_query("""
+            SELECT id, nombres, apellidos, tipo, person_id, cargo_original, subcategoria
+            FROM Profesor 
+            WHERE datos_personales_vinculados = TRUE
+            ORDER BY apellidos, nombres
+        """)
     def delete_profesor(self, profesor_id: int) -> bool:
         """Delete profesor and all related data"""
         try:
@@ -621,6 +688,104 @@ class DatabaseManager:
             'total_sessions': total_sessions,
             'campus_list': sorted(list(campus_set)),
             'academic_levels': sorted(list(levels_set))
+        }
+    
+    
+    
+    def get_departamentos_with_professor_stats(self) -> List[Dict]:
+        """Get all departments with professor and section statistics"""
+        results = self.execute_query(
+            """SELECT 
+                d.nombre as departamento_nombre,
+                COUNT(DISTINCT pd.profesor_id) as num_professors,
+                COUNT(DISTINCT sec.NRC) as num_sections,
+                COUNT(DISTINCT ses.id) as num_sessions,
+                SUM(sec.inscritos) as total_students,
+                SUM(sec.cupo) as total_capacity
+            FROM Departamento d
+            LEFT JOIN ProfesorDepartamento pd ON d.nombre = pd.departamento_nombre
+            LEFT JOIN Profesor p ON pd.profesor_id = p.id
+            LEFT JOIN SeccionProfesor sp ON p.id = sp.profesor_id
+            LEFT JOIN Seccion sec ON sp.seccion_NRC = sec.NRC
+            LEFT JOIN Sesion ses ON sec.NRC = ses.seccion_NRC
+            GROUP BY d.nombre
+            ORDER BY d.nombre"""
+        )
+        
+        departamentos = []
+        for row in results:
+            departamentos.append({
+                'nombre': row[0],
+                'num_professors': row[1] if row[1] else 0,
+                'num_sections': row[2] if row[2] else 0,
+                'num_sessions': row[3] if row[3] else 0,
+                'total_students': row[4] if row[4] else 0,
+                'total_capacity': row[5] if row[5] else 0
+            })
+        
+        return departamentos
+    
+    def get_departamento_summary(self, departamento_nombre: str) -> Dict:
+        """Get comprehensive summary statistics for a department"""
+        # Get basic stats
+        result = self.execute_query(
+            """SELECT 
+                COUNT(DISTINCT pd.profesor_id) as num_professors,
+                COUNT(DISTINCT m.codigo) as num_materias,
+                COUNT(DISTINCT sec.NRC) as num_sections,
+                COUNT(DISTINCT ses.id) as num_sessions,
+                SUM(sec.inscritos) as total_students,
+                SUM(sec.cupo) as total_capacity,
+                SUM(m.creditos) as total_credits
+            FROM Departamento d
+            LEFT JOIN ProfesorDepartamento pd ON d.nombre = pd.departamento_nombre
+            LEFT JOIN Materia m ON d.nombre = m.departamento_nombre
+            LEFT JOIN Seccion sec ON m.codigo = sec.materia_codigo
+            LEFT JOIN Sesion ses ON sec.NRC = ses.seccion_NRC
+            WHERE d.nombre = ?
+            GROUP BY d.nombre""",
+            (departamento_nombre,),
+            fetch_one=True
+        )
+        
+        if not result:
+            return {
+                'num_professors': 0,
+                'num_materias': 0,
+                'num_sections': 0,
+                'num_sessions': 0,
+                'total_students': 0,
+                'total_capacity': 0,
+                'total_credits': 0,
+                'academic_levels': [],
+                'campus_list': []
+            }
+        
+        # Get academic levels and campus info
+        levels_result = self.execute_query(
+            """SELECT DISTINCT m.nivel 
+            FROM Materia m 
+            WHERE m.departamento_nombre = ? AND m.nivel IS NOT NULL""",
+            (departamento_nombre,)
+        )
+        
+        campus_result = self.execute_query(
+            """SELECT DISTINCT m.campus 
+            FROM Materia m 
+            WHERE m.departamento_nombre = ? AND m.campus IS NOT NULL""",
+            (departamento_nombre,)
+        )
+        
+        return {
+            'num_professors': result[0] if result[0] else 0,
+            'num_materias': result[1] if result[1] else 0,
+            'num_sections': result[2] if result[2] else 0,
+            'num_sessions': result[3] if result[3] else 0,
+            'total_students': result[4] if result[4] else 0,
+            'total_capacity': result[5] if result[5] else 0,
+            'total_credits': result[6] if result[6] else 0,
+            'academic_levels': [row[0] for row in levels_result] if levels_result else [],
+            'campus_list': [row[0] for row in campus_result] if campus_result else []
         }
     
     # ==================== MATERIA OPERATIONS ====================
@@ -1160,3 +1325,55 @@ class DatabaseManager:
                 query += f" OFFSET {offset}"
         
         return self.execute_query(query, tuple(params))
+    
+    # ==================== PERSONAL MERGE METHODS ====================
+    
+    
+    def find_professors_by_name_similarity(self, target_name: str, threshold: float = 0.8) -> List[Dict]:
+        """Find professors by name similarity"""
+        from difflib import SequenceMatcher
+        
+        all_professors = self.get_all_profesores()
+        similar_professors = []
+        
+        target_normalized = ' '.join(target_name.upper().split())
+        
+        for prof in all_professors:
+            existing_normalized = ' '.join(prof['full_name'].upper().split())
+            similarity = SequenceMatcher(None, target_normalized, existing_normalized).ratio()
+            
+            if similarity >= threshold:
+                prof_copy = prof.copy()
+                prof_copy['similarity_score'] = similarity
+                similar_professors.append(prof_copy)
+        
+        # Sort by similarity score (highest first)
+        similar_professors.sort(key=lambda x: x['similarity_score'], reverse=True)
+        
+        return similar_professors
+    
+    def get_professor_by_exact_name(self, nombres: str, apellidos: str) -> Optional[Dict]:
+        """Get professor by exact name match"""
+        result = self.execute_query(
+            """SELECT id, nombres, apellidos, tipo,
+                      person_id, cargo_original, subcategoria,
+                      datos_personales_vinculados
+               FROM Profesor 
+               WHERE UPPER(nombres) = UPPER(?) AND UPPER(apellidos) = UPPER(?)""",
+            (nombres.strip(), apellidos.strip()),
+            fetch_one=True
+        )
+        
+        if result:
+            return {
+                'id': result[0],
+                'nombres': result[1],
+                'apellidos': result[2],
+                'tipo': result[3],
+                'person_id': result[4],
+                'cargo_original': result[5],
+                'subcategoria': result[6],
+                'datos_personales_vinculados': result[7],
+                'full_name': f"{result[1]} {result[2]}"
+            }
+        return None

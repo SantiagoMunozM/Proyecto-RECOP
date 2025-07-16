@@ -31,6 +31,8 @@ class DatabaseManager:
                 person_id INTEGER,
                 cargo_original TEXT,
                 subcategoria INTEGER,
+                dependencia TEXT,
+                contrato TEXT,
                 fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 datos_personales_vinculados BOOLEAN DEFAULT FALSE
             )
@@ -70,6 +72,7 @@ class DatabaseManager:
                     cupo INTEGER,
                     inscritos INTEGER DEFAULT 0,
                     cupoDisponible INTEGER,
+                    lista_cruzada TEXT,
                     materia_codigo TEXT,
                     profesor_ids TEXT,
                     FOREIGN KEY (materia_codigo) REFERENCES Materia(codigo)
@@ -387,21 +390,38 @@ class DatabaseManager:
             return False
         # Add these methods to the DatabaseManager class:
     
+    # Update this method in database.py:
+    
     def update_professor_personal_data(self, profesor_id: int, person_id: int, 
                                      cargo_original: str, tipo_enhanced: str, 
-                                     subcategoria: int = None):
+                                     subcategoria: int = None, dependencia: str = None,
+                                     contrato: str = None) :
         """Update professor with personal data information"""
         try:
+            print(f"DEBUG: Updating professor {profesor_id} with subcategoria: {subcategoria}")  # DEBUG
+            
+            # Handle None subcategoria explicitly
+            subcategoria_value = subcategoria if subcategoria is not None else None
+            
             self.execute_query("""
                 UPDATE Profesor 
                 SET person_id = ?, 
                     cargo_original = ?, 
                     tipo = ?, 
                     subcategoria = ?, 
+                    dependencia = ?,
+                    contrato = ?,
                     fecha_actualizacion = CURRENT_TIMESTAMP,
                     datos_personales_vinculados = TRUE
                 WHERE id = ?
-            """, (person_id, cargo_original, tipo_enhanced, subcategoria, profesor_id))
+            """, (person_id, cargo_original, tipo_enhanced, subcategoria_value, dependencia, contrato, profesor_id))
+            
+            # Verify the update
+            result = self.execute_query("""
+                SELECT subcategoria FROM Profesor WHERE id = ?
+            """, (profesor_id,), fetch_one=True)
+            
+            print(f"DEBUG: After update, subcategoria = {result[0] if result else 'No result'}")  # DEBUG
             return True
         except Exception as e:
             print(f"Error updating professor personal data: {e}")
@@ -420,7 +440,8 @@ class DatabaseManager:
         """Get professor with enhanced personal data information"""
         result = self.execute_query("""
             SELECT id, nombres, apellidos, tipo,
-                   person_id, cargo_original, subcategoria, 
+                   person_id, cargo_original, subcategoria,
+                   dependencia, contrato, 
                    fecha_actualizacion, datos_personales_vinculados
             FROM Profesor 
             WHERE id = ?
@@ -435,8 +456,10 @@ class DatabaseManager:
                 'person_id': result[4],
                 'cargo_original': result[5],
                 'subcategoria': result[6],
-                'fecha_actualizacion': result[7],
-                'datos_personales_vinculados': result[8]
+                'dependencia': result[7],
+                'contrato': result[8],
+                'fecha_actualizacion': result[9],
+                'datos_personales_vinculados': result[10]
             }
         return None
     
@@ -787,6 +810,296 @@ class DatabaseManager:
             'academic_levels': [row[0] for row in levels_result] if levels_result else [],
             'campus_list': [row[0] for row in campus_result] if campus_result else []
         }
+        
+    def get_profesores_by_departamento_with_stats(self, departamento: str) -> List[Dict]:
+        """Get professors by department with session and section statistics"""
+        results = self.execute_query(
+            """SELECT DISTINCT p.id, p.nombres, p.apellidos, p.tipo,
+                      COUNT(DISTINCT sp.sesion_id) as num_sessions,
+                      COUNT(DISTINCT scp.seccion_NRC) as num_sections
+               FROM Profesor p
+               JOIN ProfesorDepartamento pd ON p.id = pd.profesor_id
+               LEFT JOIN SesionProfesor sp ON p.id = sp.profesor_id
+               LEFT JOIN SeccionProfesor scp ON p.id = scp.profesor_id
+               WHERE pd.departamento_nombre = ? 
+               GROUP BY p.id, p.nombres, p.apellidos, p.tipo
+               ORDER BY p.apellidos, p.nombres""",
+            (departamento,)
+        )
+        
+        profesores = []
+        for row in results:
+            profesores.append({
+                'id': row[0],
+                'nombres': row[1],
+                'apellidos': row[2],
+                'tipo': row[3],
+                'full_name': f"{row[1]} {row[2]}",
+                'num_sessions': row[4] if row[4] else 0,
+                'num_sections': row[5] if row[5] else 0
+            })
+        
+        return profesores
+    
+    
+    
+    
+    def get_profesores_by_departamento_with_filters(self, departamento: str, tipo_filter: str = None, 
+                                                   nivel_filter: str = None, name_filter: str = "") -> List[Dict]:
+        """Get professors by department with type and academic level filters"""
+        
+        # Base query with joins for statistics
+        base_query = """
+            SELECT DISTINCT p.id, p.nombres, p.apellidos, p.tipo, p.subcategoria,
+                   COUNT(DISTINCT sp.sesion_id) as num_sessions,
+                   COUNT(DISTINCT scp.seccion_NRC) as num_sections
+            FROM Profesor p
+            JOIN ProfesorDepartamento pd ON p.id = pd.profesor_id
+            LEFT JOIN SesionProfesor sp ON p.id = sp.profesor_id
+            LEFT JOIN SeccionProfesor scp ON p.id = scp.profesor_id
+        """
+        
+        # Add joins for level filtering if needed
+        if nivel_filter and nivel_filter != "Todos los niveles":
+            base_query += """
+                LEFT JOIN Seccion sec ON scp.seccion_NRC = sec.NRC
+                LEFT JOIN Materia m ON sec.materia_codigo = m.codigo
+            """
+        
+        # WHERE conditions
+        conditions = ["pd.departamento_nombre = ?"]
+        params = [departamento]
+        
+        # Type filter (Planta/Cátedra) - CORRECTED LOGIC
+        if tipo_filter and tipo_filter != "Todos los tipos":
+            if tipo_filter == "Planta":
+                # Planta are those whose tipo is NOT 'CÁTEDRA'
+                conditions.append("(p.tipo != 'CÁTEDRA' OR p.tipo IS NULL)")
+            elif tipo_filter == "Cátedra":
+                # Cátedra are those whose tipo is exactly 'CÁTEDRA'
+                conditions.append("p.tipo = 'CÁTEDRA'")
+        
+        # Level filter (Pregrado/Magister)
+        if nivel_filter and nivel_filter != "Todos los niveles":
+            conditions.append("m.nivel = ?")
+            params.append(nivel_filter.upper())
+        
+        # Name filter
+        if name_filter:
+            conditions.append("(LOWER(p.nombres) LIKE ? OR LOWER(p.apellidos) LIKE ?)")
+            filter_param = f"%{name_filter.lower()}%"
+            params.extend([filter_param, filter_param])
+        
+        # Combine query
+        query = base_query + " WHERE " + " AND ".join(conditions)
+        query += " GROUP BY p.id, p.nombres, p.apellidos, p.tipo, p.subcategoria"
+        query += " ORDER BY p.apellidos, p.nombres"
+        
+        try:
+            results = self.execute_query(query, tuple(params))
+            
+            profesores = []
+            for row in results:
+                # Determine actual type based on tipo field - CORRECTED LOGIC
+                actual_tipo = "Cátedra" if row[3] == "CÁTEDRA" else "Planta"
+                
+                profesores.append({
+                    'id': row[0],
+                    'nombres': row[1],
+                    'apellidos': row[2],
+                    'tipo': row[3],  # Original tipo from database
+                    'subcategoria': row[4],
+                    'actual_tipo': actual_tipo,  # Determined tipo
+                    'full_name': f"{row[1]} {row[2]}",
+                    'num_sessions': row[5] if row[5] else 0,
+                    'num_sections': row[6] if row[6] else 0
+                })
+            
+            return profesores
+            
+        except Exception as e:
+            print(f"Error in filtered query: {e}")
+            return []
+    
+    def get_available_academic_levels_for_department(self, departamento: str) -> List[str]:
+        """Get available academic levels for professors in a department"""
+        results = self.execute_query(
+            """SELECT DISTINCT m.nivel
+               FROM Materia m
+               JOIN Seccion sec ON m.codigo = sec.materia_codigo
+               JOIN SeccionProfesor sp ON sec.NRC = sp.seccion_NRC
+               JOIN Profesor p ON sp.profesor_id = p.id
+               JOIN ProfesorDepartamento pd ON p.id = pd.profesor_id
+               WHERE pd.departamento_nombre = ? AND m.nivel IS NOT NULL
+               ORDER BY m.nivel""",
+            (departamento,)
+        )
+        
+        return [row[0] for row in results if row[0]]
+    
+    def get_professor_type_stats_for_department(self, departamento: str) -> Dict:
+        """Get professor type statistics for a department - CORRECTED LOGIC"""
+        results = self.execute_query(
+            """SELECT 
+                   SUM(CASE WHEN p.tipo != 'CÁTEDRA' OR p.tipo IS NULL THEN 1 ELSE 0 END) as planta_count,
+                   SUM(CASE WHEN p.tipo = 'CÁTEDRA' THEN 1 ELSE 0 END) as catedra_count,
+                   COUNT(*) as total_count
+               FROM Profesor p
+               JOIN ProfesorDepartamento pd ON p.id = pd.profesor_id
+               WHERE pd.departamento_nombre = ?""",
+            (departamento,),
+            fetch_one=True
+        )
+        
+        if results:
+            return {
+                'planta': results[0] or 0,
+                'catedra': results[1] or 0,
+                'total': results[2] or 0
+            }
+        return {'planta': 0, 'catedra': 0, 'total': 0}
+        
+        # Add these methods to the DatabaseManager class in database.py:
+    
+    def get_all_profesores_with_materia_stats(self) -> List[Dict]:
+        """Get all professors with their materia statistics"""
+        results = self.execute_query(
+            """SELECT p.id, p.nombres, p.apellidos, p.tipo,
+                      COUNT(DISTINCT m.codigo) as num_materias,
+                      COUNT(DISTINCT scp.seccion_NRC) as num_sections
+               FROM Profesor p
+               LEFT JOIN SeccionProfesor scp ON p.id = scp.profesor_id
+               LEFT JOIN Seccion sec ON scp.seccion_NRC = sec.NRC
+               LEFT JOIN Materia m ON sec.materia_codigo = m.codigo
+               GROUP BY p.id, p.nombres, p.apellidos, p.tipo
+               ORDER BY p.apellidos, p.nombres"""
+        )
+        
+        profesores = []
+        for row in results:
+            profesor_id = row[0]
+            
+            # Get departments separately to avoid duplicates
+            dept_results = self.execute_query(
+                """SELECT DISTINCT departamento_nombre 
+                   FROM ProfesorDepartamento 
+                   WHERE profesor_id = ? 
+                   ORDER BY departamento_nombre""",
+                (profesor_id,)
+            )
+            
+            # Create clean department list
+            departamentos = [dept[0] for dept in dept_results]
+            departamentos_str = ', '.join(departamentos) if departamentos else 'Sin departamento'
+            
+            profesores.append({
+                'id': row[0],
+                'nombres': row[1],
+                'apellidos': row[2],
+                'tipo': row[3],
+                'departamentos': departamentos_str,
+                'full_name': f"{row[1]} {row[2]}",
+                'num_materias': row[4],
+                'num_sections': row[5]
+            })
+        
+        return profesores
+    
+    def get_profesor_materias(self, profesor_id: int) -> List[Dict]:
+        """Get all materias for a specific professor with detailed information"""
+        results = self.execute_query(
+            """SELECT DISTINCT
+                m.codigo,
+                m.nombre,
+                m.creditos,
+                m.nivel,
+                m.calificacion,
+                m.campus,
+                m.periodo,
+                m.departamento_nombre,
+                COUNT(DISTINCT sec.NRC) as num_sections,
+                SUM(sec.inscritos) as total_students,
+                SUM(sec.cupo) as total_capacity
+            FROM Materia m
+            JOIN Seccion sec ON m.codigo = sec.materia_codigo
+            JOIN SeccionProfesor sp ON sec.NRC = sp.seccion_NRC
+            WHERE sp.profesor_id = ?
+            GROUP BY m.codigo, m.nombre, m.creditos, m.nivel, m.calificacion, 
+                     m.campus, m.periodo, m.departamento_nombre
+            ORDER BY m.departamento_nombre, m.codigo""",
+            (profesor_id,)
+        )
+        
+        materias = []
+        for row in results:
+            materias.append({
+                'codigo': row[0],
+                'nombre': row[1],
+                'creditos': row[2] if row[2] else 0,
+                'nivel': row[3],
+                'calificacion': row[4],
+                'campus': row[5],
+                'periodo': row[6],
+                'departamento': row[7],
+                'num_sections': row[8] if row[8] else 0,
+                'total_students': row[9] if row[9] else 0,
+                'total_capacity': row[10] if row[10] else 0
+            })
+        
+        return materias
+    
+    def get_profesor_materias_summary(self, profesor_id: int) -> Dict:
+        """Get summary statistics for a professor's materias"""
+        materias = self.get_profesor_materias(profesor_id)
+        
+        if not materias:
+            return {
+                'total_materias': 0,
+                'total_sections': 0,
+                'total_credits': 0,
+                'total_students': 0,
+                'total_capacity': 0,
+                'departments': [],
+                'academic_levels': [],
+                'campus_list': [],
+                'grading_modes': []
+            }
+        
+        # Calculate summary
+        departments = set()
+        levels_set = set()
+        campus_set = set()
+        grading_set = set()
+        total_sections = 0
+        total_credits = 0
+        total_students = 0
+        total_capacity = 0
+        
+        for materia in materias:
+            departments.add(materia['departamento'])
+            if materia['nivel']:
+                levels_set.add(materia['nivel'])
+            if materia['campus']:
+                campus_set.add(materia['campus'])
+            if materia['calificacion']:
+                grading_set.add(materia['calificacion'])
+            
+            total_sections += materia['num_sections']
+            total_credits += materia['creditos']
+            total_students += materia['total_students']
+            total_capacity += materia['total_capacity']
+        
+        return {
+            'total_materias': len(materias),
+            'total_sections': total_sections,
+            'total_credits': total_credits,
+            'total_students': total_students,
+            'total_capacity': total_capacity,
+            'departments': sorted(list(departments)),
+            'academic_levels': sorted(list(levels_set)),
+            'campus_list': sorted(list(campus_set)),
+            'grading_modes': sorted(list(grading_set))
+        }
     
     # ==================== MATERIA OPERATIONS ====================
     
@@ -1072,7 +1385,7 @@ class DatabaseManager:
     # ==================== SECCION OPERATIONS ====================
     
     def create_seccion(self, nrc: int, indicador: str, cupo: int, materia_codigo: str, 
-                      profesor_ids: List[int] = None) -> bool:
+                      profesor_ids: List[int] = None, lista_cruzada: str = None) -> bool:
         """Create new seccion"""
         try:
             conn = self.get_connection()
@@ -1091,9 +1404,11 @@ class DatabaseManager:
             profesor_ids_json = json.dumps(profesor_ids)
             
             cursor.execute(
-                """INSERT INTO Seccion (NRC, indicador, cupo, inscritos, cupoDisponible, materia_codigo, profesor_ids)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (nrc, indicador.strip(), cupo, 0, cupo_disponible, materia_codigo, profesor_ids_json)
+                """INSERT INTO Seccion (NRC, indicador, cupo, inscritos, cupoDisponible,
+                                        lista_cruzada, materia_codigo, profesor_ids)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (nrc, indicador.strip(), cupo, 0, cupo_disponible,
+                 lista_cruzada.strip() if lista_cruzada else None, materia_codigo, profesor_ids_json)
             )
             
             # Insert into SeccionProfesor junction table
@@ -1138,13 +1453,13 @@ class DatabaseManager:
         """Get all sections with materia info"""
         results = self.execute_query(
             """SELECT s.NRC, s.indicador, s.cupo, s.inscritos, s.cupoDisponible, 
-                      s.materia_codigo, m.nombre as materia_nombre, m.departamento_nombre,
+                      s.lista_cruzada, s.materia_codigo, m.nombre as materia_nombre, m.departamento_nombre,
                       COUNT(ses.id) as num_sessions
                FROM Seccion s
                JOIN Materia m ON s.materia_codigo = m.codigo
                LEFT JOIN Sesion ses ON s.NRC = ses.seccion_NRC
                GROUP BY s.NRC, s.indicador, s.cupo, s.inscritos, s.cupoDisponible, 
-                        s.materia_codigo, m.nombre, m.departamento_nombre
+                        s.lista_cruzada, s.materia_codigo, m.nombre, m.departamento_nombre
                ORDER BY m.departamento_nombre, s.materia_codigo, s.NRC"""
         )
         return [
@@ -1154,10 +1469,11 @@ class DatabaseManager:
                 'cupo': row[2],
                 'inscritos': row[3],
                 'cupo_disponible': row[4],
-                'materia_codigo': row[5],
-                'materia_nombre': row[6],
-                'departamento': row[7],
-                'num_sessions': row[8]
+                'lista_cruzada': row[5],
+                'materia_codigo': row[6],
+                'materia_nombre': row[7],
+                'departamento': row[8],
+                'num_sessions': row[9]
             }
             for row in results
         ]
@@ -1166,7 +1482,7 @@ class DatabaseManager:
         """Get section by NRC"""
         result = self.execute_query(
             """SELECT s.NRC, s.indicador, s.cupo, s.inscritos, s.cupoDisponible, 
-                      s.materia_codigo, m.nombre as materia_nombre, m.departamento_nombre
+                      s.lista_cruzada, s.materia_codigo, m.nombre as materia_nombre, m.departamento_nombre
                FROM Seccion s
                JOIN Materia m ON s.materia_codigo = m.codigo
                WHERE s.NRC = ?""",
@@ -1180,20 +1496,22 @@ class DatabaseManager:
                 'cupo': result[2],
                 'inscritos': result[3],
                 'cupo_disponible': result[4],
-                'materia_codigo': result[5],
-                'materia_nombre': result[6],
-                'departamento': result[7]
+                'lista_cruzada': result[5],
+                'materia_codigo': result[6],
+                'materia_nombre': result[7],
+                'departamento': result[8]
             }
         return None
     
-    def update_seccion(self, nrc: int, indicador: str, cupo: int, inscritos: int) -> bool:
+    def update_seccion(self, nrc: int, indicador: str, cupo: int, inscritos: int,
+                       lista_cruzada: str = None) -> bool:
         """Update section information"""
         try:
             cupo_disponible = cupo - inscritos
             count = self.execute_query(
-                """UPDATE Seccion SET indicador = ?, cupo = ?, inscritos = ?, cupoDisponible = ?
+                """UPDATE Seccion SET indicador = ?, cupo = ?, inscritos = ?, cupoDisponible = ?, lista_cruzada = ?
                    WHERE NRC = ?""",
-                (indicador.strip(), cupo, inscritos, cupo_disponible, nrc)
+                (indicador.strip(), cupo, inscritos, cupo_disponible, lista_cruzada.strip() if lista_cruzada else None, nrc)
             )
             return count > 0
         except Exception as e:

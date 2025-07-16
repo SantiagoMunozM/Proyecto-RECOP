@@ -422,6 +422,59 @@ class DataFormatter:
             return int(float(value))
         except (ValueError, TypeError):
             return default
+        
+        # Add this new function to the DataFormatter class in utils.py:
+    
+    @staticmethod
+    def normalize_department_name(name: str) -> str:
+        """
+        Normalize department name to handle spacing inconsistencies
+        
+        Args:
+            name: Department name to normalize
+            
+        Returns:
+            str: Normalized department name with consistent spacing
+        """
+        if not name or pd.isna(name):
+            return "DECANATURA DE INGENIERIA"  # Updated default
+        
+        # Convert to string and strip
+        normalized = str(name).strip().upper()
+        
+        # Handle empty or default cases
+        if not normalized or normalized in ["NO DECLARADO", "SIN DEPARTAMENTO", "N/A"]:
+            return "DECANATURA DE INGENIERIA"
+        
+        # Fix common spacing issues
+        # Add space after periods if missing
+        normalized = re.sub(r'\.([A-Z])', r'. \1', normalized)
+        
+        # Fix multiple spaces
+        normalized = re.sub(r'\s+', ' ', normalized)
+        
+        # Common department name corrections
+        department_corrections = {
+            'INGEN. QUIMICA Y DE ALIMENTOS': 'INGEN. QUIMICA Y DE ALIMENTOS',
+            'INGEN.QUIMICA Y DE ALIMENTOS': 'INGEN. QUIMICA Y DE ALIMENTOS',
+            'INGENIERIA QUIMICA Y DE ALIMENTOS': 'INGEN. QUIMICA Y DE ALIMENTOS',
+            'INGEN. ELECTRICA Y ELECTRONICA': 'INGEN. ELECTRICA Y ELECTRONICA',
+            'INGEN.ELECTRICA Y ELECTRONICA': 'INGEN. ELECTRICA Y ELECTRONICA',
+            'INGENIERIA ELECTRICA Y ELECTRONICA': 'INGEN. ELECTRICA Y ELECTRONICA',
+            'INGEN. MECANICA': 'INGENIERIA MECANICA',
+            'INGEN.MECANICA': 'INGENIERIA MECANICA',
+            'INGEN. INDUSTRIAL': 'INGENIERIA INDUSTRIAL',
+            'INGEN.INDUSTRIAL': 'INGENIERIA INDUSTRIAL',
+            'INGEN. CIVIL Y AMBIENTAL': 'INGENIERIA CIVIL Y AMBIENTAL',
+            'INGEN.CIVIL Y AMBIENTAL': 'INGENIERIA CIVIL Y AMBIENTAL',
+            'INGEN. DE SISTEMAS Y COMPU': 'INGENIERIA DE SISTEMAS Y COMPU',
+            'INGEN.DE SISTEMAS Y COMPU': 'INGENIERIA DE SISTEMAS Y COMPU',
+            'INGEN. BIOMEDICA': 'INGENIERIA BIOMEDICA',
+            'INGEN.BIOMEDICA': 'INGENIERIA BIOMEDICA'
+        }
+        
+        # Apply corrections
+        return department_corrections.get(normalized, normalized)
 
 class UIHelpers:
     """Helper functions for UI operations"""

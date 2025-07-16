@@ -720,6 +720,12 @@ class CreateSeccionDialog(BaseDialog):
                                  from_=1, to=200, width=18)
         cupo_spinbox.grid(row=2, column=1, sticky=tk.W, pady=(0, 5), padx=(10, 0))
         
+        # Lista Cruzada field - NEW
+        ttk.Label(form_frame, text="Lista Cruzada\n(opcional):").grid(row=3, column=0, sticky=tk.W+tk.N, pady=(0, 5))
+        self.lista_cruzada_var = tk.StringVar()
+        lista_cruzada_entry = ttk.Entry(form_frame, textvariable=self.lista_cruzada_var, width=30)
+        lista_cruzada_entry.grid(row=3, column=1, sticky=tk.W+tk.E, pady=(0, 5), padx=(10, 0))
+        
         # Profesores (optional for now)
         ttk.Label(form_frame, text="Profesores\n(opcional):").grid(row=3, column=0, sticky=tk.W+tk.N, pady=(0, 5))
         
@@ -808,12 +814,17 @@ class CreateSeccionDialog(BaseDialog):
         if self.db_manager.nrc_exists(nrc):
             messagebox.showerror("Error", f"El NRC {nrc} ya existe.")
             return
+        
+        # Get lista_cruzada (optional) - NEW
+        lista_cruzada = self.lista_cruzada_var.get().strip()
+        if not lista_cruzada:
+            lista_cruzada = None
             
         # Get selected profesores
         selected_indices = self.prof_listbox.curselection()
         profesor_ids = [self.available_profesores[i]['id'] for i in selected_indices]
         
-        if self.db_manager.create_seccion(nrc, indicador, cupo, self.selected_materia, profesor_ids):
+        if self.db_manager.create_seccion(nrc, indicador, cupo, self.selected_materia, profesor_ids, lista_cruzada):
             prof_count = len(profesor_ids)
             prof_text = f" con {prof_count} profesor(es)" if prof_count > 0 else " sin profesores asignados"
             messagebox.showinfo("Éxito", 

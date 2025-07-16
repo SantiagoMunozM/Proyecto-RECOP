@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import os
 from database import DatabaseManager
-from ui_components import DatabaseViewer, ProgressDialog, SearchProfessorDialog, ProfessorSessionsDialog, setup_ttk_styles
+from ui_components import DatabaseViewer, ProgressDialog, SearchProfessorDialog, ProfessorSessionsDialog, setup_ttk_styles, get_theme_colors
 from crud_dialogs import open_create_dialog
 from csv_processor import CSVProcessor
 from utils import FileHelpers, UIHelpers, Constants
@@ -15,6 +15,7 @@ class RECOPSimulator:
         self.csv_processor = CSVProcessor(self.db_manager)
         self.style = setup_ttk_styles(self.root)
         self.setup_ui()
+        self.apply_dark_mode_to_widgets()
         self.check_existing_database()
     
     def setup_ui(self):
@@ -305,6 +306,15 @@ class RECOPSimulator:
         )
         self.prof_sections_btn.pack(side=tk.LEFT, padx=(0, 10))
         
+        self.prof_materias_btn = ttk.Button(
+            query_row,
+            text="📖 Materias de Profesor",
+            command=self.query_professor_materias,
+            state="disabled",
+            style="Green.TButton"
+        )
+        self.prof_materias_btn.pack(side=tk.LEFT, padx=(0, 5))  
+        
         self.materia_sections_btn = ttk.Button(
             query_row,
             text="📖 Secciones de Materia",
@@ -321,7 +331,9 @@ class RECOPSimulator:
             state="disabled",
             style="Green.TButton"
         )
-        self.dept_professors_btn.pack(side=tk.LEFT, padx=(0, 5))      
+        self.dept_professors_btn.pack(side=tk.LEFT, padx=(0, 5))    
+        
+        
         
     
     def create_status_bar(self):
@@ -379,7 +391,7 @@ class RECOPSimulator:
         """Enable all database operation buttons"""
         buttons = [
             'view_tables_btn', 'stats_btn', 'backup_btn', 'search_btn', 'reset_btn',
-            'prof_sessions_btn', 'prof_sections_btn', 'materia_sections_btn', 'dept_professors_btn',
+            'prof_sessions_btn', 'prof_sections_btn', 'materia_sections_btn', 'dept_professors_btn', 'prof_materias_btn',
             'create_departamento_btn', 'create_profesor_btn', 'create_materia_btn', 'create_seccion_btn',
             'upload_personal_btn'
         ]
@@ -392,7 +404,7 @@ class RECOPSimulator:
         """Disable all database operation buttons"""
         buttons = [
             'view_tables_btn', 'stats_btn', 'backup_btn', 'search_btn',
-            'prof_sessions_btn', 'prof_sections_btn','materia_sections_btn', 'dept_professors_btn',
+            'prof_sessions_btn', 'prof_sections_btn','materia_sections_btn', 'dept_professors_btn', 'prof_materias_btn',
             'create_departamento_btn', 'create_profesor_btn', 'create_materia_btn', 'create_seccion_btn',
             'upload_personal_btn'
         ]
@@ -401,7 +413,6 @@ class RECOPSimulator:
             if hasattr(self, btn_name):
                 getattr(self, btn_name).config(state="disabled")
     
-        # Replace the select_csv_file method in app.py:
     
     def select_csv_file(self):
         """Open file dialog to select CSV file"""
@@ -438,6 +449,8 @@ class RECOPSimulator:
             self.status_var.set("Archivo CSV seleccionado - Listo para procesar")
     
     
+        # In the process_csv method, update the processing section:
+    
     def process_csv(self):
         """Process the selected CSV file"""
         if not hasattr(self, 'csv_file_path') or not self.csv_file_path:
@@ -461,6 +474,22 @@ class RECOPSimulator:
             ):
                 return
         
+        # Show information about interactive disambiguation
+        info_msg = (
+            "Durante el procesamiento, es posible que aparezcan diálogos para "
+            "disambiguar nombres de profesores con tres partes.\n\n"
+            "Estos diálogos le permitirán decidir cómo dividir nombres como:\n"
+            "• 'Ana María González' (¿nombres compuestos o apellidos compuestos?)\n\n"
+            "El procesamiento puede tomar más tiempo debido a esta interacción."
+        )
+        
+        if not UIHelpers.confirm_action(
+            self.root,
+            "Procesamiento Interactivo",
+            f"{info_msg}\n\n¿Desea continuar?"
+        ):
+            return
+        
         # Show progress bar
         self.progress_bar.pack(fill=tk.X, pady=(10, 0))
         self.progress_var.set(0)
@@ -469,8 +498,9 @@ class RECOPSimulator:
         self.select_csv_btn.config(state="disabled")
         self.process_csv_btn.config(state="disabled")
         
-        # Create progress dialog
-        progress = ProgressDialog(self.root, "Procesando archivo CSV", "Iniciando procesamiento...")
+        # Create progress dialog - Modified to allow user interaction
+        progress = ProgressDialog(self.root, "Procesando archivo CSV", 
+                                 "Iniciando procesamiento...\n(Pueden aparecer diálogos de confirmación)")
         
         try:
             def update_progress(message):
@@ -478,18 +508,28 @@ class RECOPSimulator:
                     progress.update_message(message)
                     self.root.update()
             
-            # Process file
+            # Process file - This may now include user interaction
             result = self.csv_processor.process_csv_file(self.csv_file_path, update_progress)
             
             progress.close()
             
             if result['success']:
                 stats = result['statistics']
+                
+                # Show disambiguation summary if any occurred
+                disambiguation_count = len(getattr(self.csv_processor, 'disambiguation_cache', {}))
+                
                 success_msg = (
                     f"¡Archivo procesado exitosamente!\n\n"
                     f"Registros procesados: {result['processed_rows']}\n"
-                    f"Registros omitidos: {result['skipped_rows']}\n\n"
-                    f"Estadísticas de la base de datos:\n"
+                    f"Registros omitidos: {result['skipped_rows']}\n"
+                )
+                
+                if disambiguation_count > 0:
+                    success_msg += f"Nombres disambiguados: {disambiguation_count}\n"
+                
+                success_msg += (
+                    f"\nEstadísticas de la base de datos:\n"
                     f"• Departamentos: {stats.get('departamento', 0)}\n"
                     f"• Profesores: {stats.get('profesor', 0)}\n"
                     f"• Materias: {stats.get('materia', 0)}\n"
@@ -652,6 +692,16 @@ class RECOPSimulator:
             DepartmentProfessorsDialog(self.root, self.db_manager)
         except Exception as e:
             messagebox.showerror("Error", f"Error al abrir diálogo de profesores por departamento: {str(e)}")
+            
+        # Add this method to the RECOPSimulator class in app.py:
+    
+    def query_professor_materias(self):
+        """Open professor materias query dialog"""
+        try:
+            from ui_components import ProfessorMateriasDialog
+            ProfessorMateriasDialog(self.root, self.db_manager)
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al abrir diálogo de materias de profesor: {str(e)}")
        
     def show_about(self):
         """Show about dialog"""
@@ -668,6 +718,52 @@ class RECOPSimulator:
         )
         
         UIHelpers.show_info(self.root, "Acerca del Simulador RECOP", about_text)
+    
+        # Add this method to the RECOPSimulator class in app.py:
+    
+    def apply_dark_mode_to_widgets(self, parent=None):
+        """Apply dark mode colors to regular tkinter widgets"""
+        if parent is None:
+            parent = self.root
+        
+        colors = get_theme_colors()  # Import this from ui_components
+        
+        # Configure root window
+        if parent == self.root:
+            self.root.configure(bg=colors['bg'])
+        
+        # Recursively update all child widgets
+        for child in parent.winfo_children():
+            widget_class = child.winfo_class()
+            
+            if widget_class == 'Frame':
+                child.configure(bg=colors['bg'])
+            elif widget_class == 'Label':
+                child.configure(bg=colors['bg'], fg=colors['fg'])
+            elif widget_class == 'Entry':
+                child.configure(bg=colors['entry_bg'], fg=colors['entry_fg'],
+                              insertbackground=colors['fg'], borderwidth=1,
+                              relief='solid')
+            elif widget_class == 'Button':
+                # Only update if it's not a styled button
+                if not hasattr(child, '_custom_styled'):
+                    child.configure(bg=colors['button_bg'], fg=colors['fg'],
+                                  activebackground=colors['select_bg'],
+                                  activeforeground=colors['select_fg'])
+            elif widget_class == 'Text':
+                child.configure(bg=colors['entry_bg'], fg=colors['entry_fg'],
+                              insertbackground=colors['fg'])
+            elif widget_class == 'Listbox':
+                child.configure(bg=colors['tree_bg'], fg=colors['tree_fg'],
+                              selectbackground=colors['tree_select'],
+                              selectforeground=colors['select_fg'])
+            elif widget_class == 'Canvas':
+                child.configure(bg=colors['bg'])
+            elif widget_class == 'Toplevel':
+                child.configure(bg=colors['bg'])
+            
+            # Recursively apply to children
+            self.apply_dark_mode_to_widgets(child)
     
     
     # Add this new method to the RECOPSimulator class in app.py:

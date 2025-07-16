@@ -1,12 +1,17 @@
 import pandas as pd
+import tkinter as tk
+from tkinter import ttk, messagebox
+from ui_components import get_theme_colors, apply_dark_mode_to_dialog
 import re
 import json
 from typing import List, Dict, Tuple, Optional
 from database import DatabaseManager
+from utils import DataFormatter
 
 class CSVProcessor:
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
+        self.disambiguation_cache = {} 
         
     def is_row_empty(self, row) -> bool:
         """Check if a row is essentially empty (all NaN or empty values)"""
@@ -40,17 +45,129 @@ class CSVProcessor:
             if clean_prof:
                 # Split name into parts
                 name_parts = clean_prof.split()
-                if len(name_parts) >= 2:
-                    # Assume last two parts are surnames, rest are names
-                    nombres = ' '.join(name_parts[:-2]) if len(name_parts) > 2 else name_parts[0]
-                    apellidos = ' '.join(name_parts[-2:]) if len(name_parts) > 1 else ''
+                nombres, apellidos = self.intelligent_name_split_with_disambiguation(name_parts)
+                
+                if nombres or apellidos:  # Only add if we got valid names
                     parsed_profs.append({
                         'nombres': nombres,
                         'apellidos': apellidos,
-                        'tipo': 'PRINCIPAL' 
+                        'tipo': 'DEFAULT' 
                     })
         
         return parsed_profs
+    
+    def intelligent_name_split_with_disambiguation(self, name_parts: List[str]) -> Tuple[str, str]:
+        """
+        Intelligently split names with user disambiguation for ambiguous cases
+        
+        Args:
+            name_parts: List of name parts
+            
+        Returns:
+            Tuple of (nombres, apellidos)
+        """
+        if len(name_parts) == 1:
+            return name_parts[0], ""
+        elif len(name_parts) == 2:
+            return name_parts[0], name_parts[1]
+        elif len(name_parts) == 3:
+            return self.resolve_three_part_ambiguity_interactive(name_parts)
+        else:  # 4 or more parts
+            # For 4+ parts, assume Colombian convention: last 2 are surnames
+            nombres = ' '.join(name_parts[:-2])
+            apellidos = ' '.join(name_parts[-2:])
+            return nombres, apellidos
+
+    def resolve_three_part_ambiguity_interactive(self, name_parts: List[str]) -> Tuple[str, str]:
+        """
+        Resolve three-part name ambiguity using automatic heuristics first, then user input
+        
+        Args:
+            name_parts: List of exactly 3 name parts
+            
+        Returns:
+            Tuple of (nombres, apellidos)
+        """
+        part1, part2, part3 = name_parts
+        full_name = ' '.join(name_parts)
+        
+        # Check cache first to avoid asking the same question multiple times
+        if full_name in self.disambiguation_cache:
+            choice = self.disambiguation_cache[full_name]
+            if choice == 1:
+                return f"{part1} {part2}", part3
+            else:
+                return part1, f"{part2} {part3}"
+        
+        # Try automatic heuristics first
+        auto_result = self.try_automatic_disambiguation(name_parts)
+        if auto_result:
+            nombres, apellidos = auto_result
+            # Cache the automatic decision
+            choice = 1 if ' ' in nombres else 2
+            self.disambiguation_cache[full_name] = choice
+            return nombres, apellidos
+        
+        # If automatic methods don't give a confident result, ask user
+        choice = self.ask_user_for_name_split(name_parts)
+        
+        # Cache the user's decision
+        self.disambiguation_cache[full_name] = choice
+        
+        if choice == 1:  # Two nombres + one apellido
+            return f"{part1} {part2}", part3
+        else:  # One nombre + two apellidos
+            return part1, f"{part2} {part3}"
+
+    def try_automatic_disambiguation(self, name_parts: List[str]) -> Optional[Tuple[str, str]]:
+        """
+        Try to automatically resolve three-part names using heuristics
+        
+        Returns:
+            Tuple of (nombres, apellidos) if confident, None if uncertain
+        """
+        part1, part2, part3 = name_parts
+        
+        # Heuristic 1: Common compound first names (high confidence)
+        compound_first_names = {
+            'ANA MARIA', 'MARIA ELENA', 'JOSE LUIS', 'JUAN CARLOS', 'LUIS FERNANDO',
+            'MARIA FERNANDA', 'ANA LUCIA', 'CARLOS ANDRES', 'JUAN PABLO', 'MARIA JOSE',
+            'LUIS MIGUEL', 'JOSE ANTONIO', 'MARIA CRISTINA', 'ANA SOFIA', 'DIEGO ALEJANDRO',
+            'SANDRA PATRICIA', 'CLAUDIA PATRICIA', 'MARTHA LUCIA', 'GLORIA ELENA'
+        }
+        
+        potential_compound = f"{part1} {part2}".upper()
+        if potential_compound in compound_first_names:
+            return f"{part1} {part2}", part3
+        
+        # Heuristic 2: Surname particles/connectors (high confidence)
+        surname_particles = {'DE', 'DEL', 'LA', 'LAS', 'LOS', 'VAN', 'VON', 'MC', 'MAC', 'D'}
+        
+        if part2.upper() in surname_particles:
+            return part1, f"{part2} {part3}"
+        
+        # Heuristic 3: Very short third part likely indicates compound first name
+        if len(part3) <= 3 and len(part2) > 4:
+            return f"{part1} {part2}", part3
+        
+        # If none of the high-confidence heuristics apply, return None (ask user)
+        return None
+
+    def ask_user_for_name_split(self, name_parts: List[str]) -> int:
+        """
+        Ask user to disambiguate three-part names using a dialog
+        
+        Args:
+            name_parts: List of exactly 3 name parts
+            
+        Returns:
+            1 for option 1 (compound first name), 2 for option 2 (compound surname)
+        """
+        part1, part2, part3 = name_parts
+        
+        # Create disambiguation dialog
+        dialog = NameDisambiguationDialog(name_parts)
+        return dialog.get_choice()
 
     def format_time(self, time_value) -> Optional[str]:
         """Convert time from HHMM format to HH:MM"""
@@ -193,7 +310,9 @@ class CSVProcessor:
         
         try:
             # Get departamento for this row
-            departamento = self.safe_strip(row['Departamento'])
+            departamento_raw = self.safe_strip(row['Departamento'])
+            
+            departamento = DataFormatter.normalize_department_name(departamento_raw)
             if not departamento:
                 print(f"Warning: Row {row_number} has no departamento, skipping")
                 return False
@@ -264,6 +383,12 @@ class CSVProcessor:
                 print(f"Warning: Row {row_number} has invalid NRC, skipping")
                 return False
             
+            lista_cruzada = None
+            lista_cruzada_value = self.safe_strip(row['Lista cruzada'])
+            
+            if lista_cruzada_value: 
+                lista_cruzada = lista_cruzada_value 
+            
             # Insert or update Seccion
             if nrc not in inserted_secciones:
                 # First time seeing this section - insert it
@@ -272,7 +397,8 @@ class CSVProcessor:
                     self.safe_strip(row['Secc']),
                     self.safe_int_convert(row['Cupo']),
                     materia_codigo, 
-                    profesor_ids
+                    profesor_ids,
+                    lista_cruzada
                 )
                 
                 if success:
@@ -285,7 +411,8 @@ class CSVProcessor:
                     if inscritos > 0:
                         self.db_manager.update_seccion(
                             nrc, self.safe_strip(row['Secc']),
-                            self.safe_int_convert(row['Cupo']), inscritos
+                            self.safe_int_convert(row['Cupo']), inscritos,
+                            lista_cruzada
                         )
             else:
                 # Section already exists - add new professors if they're not already there
@@ -468,3 +595,181 @@ class CSVProcessor:
             result['error_message'] = str(e)
         
         return result
+    
+class NameDisambiguationDialog:
+    """Dialog for disambiguating three-part names with proper TTK styling"""
+    
+    def __init__(self, name_parts: List[str]):
+        self.name_parts = name_parts
+        self.choice = 2  # Default to option 2 (Colombian convention)
+        self.dialog = None
+        self.canvas = None
+        self.scrollable_frame = None
+        
+    def get_choice(self) -> int:
+        """Show dialog and get user choice"""
+        try:
+            # Import utilities
+            from ui_components import get_theme_colors, setup_ttk_styles
+            colors = get_theme_colors()
+            
+            # Create dialog window
+            self.dialog = tk.Toplevel()
+            self.dialog.title("Disambiguación de Nombre")
+            self.dialog.geometry("900x700")
+            self.dialog.resizable(True, True)
+            
+            # Configure dialog colors
+            self.dialog.configure(bg=colors['bg'])
+            
+            # Setup TTK styles for this dialog
+            self.style = setup_ttk_styles(self.dialog)
+            
+            # Make dialog modal
+            self.dialog.transient()
+            self.dialog.grab_set()
+            
+            # Center the dialog
+            self.center_dialog()
+            
+            # Setup UI
+            self.setup_ui(colors)
+            
+            # Wait for user to make a choice
+            self.dialog.wait_window()
+            
+            return self.choice
+            
+        except Exception as e:
+            print(f"Error in name disambiguation dialog: {e}")
+            return 2
+    
+    def center_dialog(self):
+        """Center dialog on screen"""
+        self.dialog.update_idletasks()
+        x = (self.dialog.winfo_screenwidth() // 2) - (900 // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (700 // 2)
+        self.dialog.geometry(f"+{x}+{y}")
+    
+    def setup_ui(self, colors):
+        """Setup the dialog UI with proper styling"""
+        # Main container
+        main_container = ttk.Frame(self.dialog)
+        main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Title
+        title_label = ttk.Label(main_container, 
+                               text="Nombre Ambiguo Encontrado", 
+                               font=("Arial", 16, "bold"))
+        title_label.pack(pady=(0, 20))
+        
+        # Name display frame
+        name_frame = ttk.LabelFrame(main_container, text="Nombre encontrado", padding="10")
+        name_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        name_label = ttk.Label(name_frame, 
+                              text=' '.join(self.name_parts), 
+                              font=("Arial", 14, "bold"))
+        name_label.pack()
+        
+        # Instructions
+        instruction_text = ("¿Cómo desea dividir este nombre?\n"
+                           "Seleccione la opción que considere más apropiada:")
+        instruction_label = ttk.Label(main_container, 
+                                     text=instruction_text, 
+                                     font=("Arial", 11),
+                                     justify=tk.CENTER)
+        instruction_label.pack(pady=(0, 20))
+        
+        # Options frame
+        options_frame = ttk.Frame(main_container)
+        options_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        # Radio button variable
+        self.choice_var = tk.IntVar(value=2)
+        
+        # Option 1: Compound first name
+        self.create_option_frame(options_frame, 1, 
+                                "Opción 1: Nombres compuestos",
+                                f"Nombres: '{self.name_parts[0]} {self.name_parts[1]}'  |  Apellidos: '{self.name_parts[2]}'",
+                                "(Ej: Ana María Rodríguez)")
+        
+        # Option 2: Compound surname  
+        self.create_option_frame(options_frame, 2,
+                                "Opción 2: Apellidos compuestos (Convención colombiana)",
+                                f"Nombres: '{self.name_parts[0]}'  |  Apellidos: '{self.name_parts[1]} {self.name_parts[2]}'",
+                                "(Ej: Santiago Muñoz Martínez)")
+        
+        # Buttons frame
+        buttons_frame = ttk.Frame(main_container)
+        buttons_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # Help text
+        help_text = ("💡 Sugerencia: En Colombia es común usar dos apellidos (paterno y materno)\n"
+                    "Si no está seguro, la Opción 2 suele ser la correcta.")
+        help_label = ttk.Label(main_container, 
+                              text=help_text, 
+                              font=("Arial", 9),
+                              justify=tk.CENTER,
+                              foreground="gray")
+        help_label.pack(pady=(10, 0))
+        
+        # Create buttons
+        self.create_buttons(buttons_frame)
+    
+    def create_option_frame(self, parent, value, title, detail, example):
+        """Create an option frame with TTK styling using theme colors"""
+        # Option frame
+        option_frame = ttk.LabelFrame(parent, text=title, padding="15")
+        option_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        # Radio button
+        radio = ttk.Radiobutton(option_frame,
+                               text="Seleccionar esta opción",
+                               variable=self.choice_var,
+                               value=value)
+        radio.pack(anchor=tk.W)
+        
+        # Detail text - USE THEME ACCENT COLOR for better visibility
+        colors = get_theme_colors()
+        
+        detail_label = ttk.Label(option_frame,
+                                text=detail,
+                                font=("Arial", 11, "bold"),  # Made bold for better visibility
+                                foreground=colors['accent'])  # Use theme accent color
+        detail_label.pack(anchor=tk.W, pady=(5, 0))
+        
+        # Example text - USE LIGHTER GRAY
+        example_color = "#B0BEC5" if colors['bg'] != '#ffffff' else colors['comment']
+        
+        example_label = ttk.Label(option_frame,
+                                 text=example,
+                                 font=("Arial", 10, "italic"),
+                                 foreground=example_color)
+        example_label.pack(anchor=tk.W, pady=(2, 0))
+    
+    def create_buttons(self, parent):
+        """Create action buttons using TTK"""
+        # Default button (left side)
+        default_btn = ttk.Button(parent,
+                                text="⚡ Usar Opción 2 por Defecto",
+                                command=self.use_default,
+                                style="Gray.TButton")
+        default_btn.pack(side=tk.LEFT)
+        
+        # Confirm button (right side)
+        confirm_btn = ttk.Button(parent,
+                                text="✓ Confirmar Selección",
+                                command=self.confirm_choice,
+                                style="Green.TButton")
+        confirm_btn.pack(side=tk.RIGHT)
+    
+    def confirm_choice(self):
+        """Confirm the user's choice"""
+        self.choice = self.choice_var.get()
+        self.dialog.destroy()
+    
+    def use_default(self):
+        """Use default choice (option 2)"""
+        self.choice = 2
+        self.dialog.destroy()

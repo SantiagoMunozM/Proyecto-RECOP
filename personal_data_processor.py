@@ -12,14 +12,23 @@ class PersonalDataProcessor:
     
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
-        self.match_threshold = 0.85  # Similarity threshold for name matching
+        self.match_threshold = 0.3  # Similarity threshold for name matching
     
     def standardize_name_from_personal_data(self, apellidos_nombres: str) -> Tuple[str, str]:
         """
-        Convert "APELLIDOS, NOMBRES" format to separate nombres and apellidos
+        Convert name format to separate nombres and apellidos
+        
+        Handles two formats:
+        1. "APELLIDOS, NOMBRES" format (comma-separated)
+        2. "APELLIDOS NOMBRES" format (space-separated, no comma)
+        
+        For space-separated format without comma:
+        - 2 elements: first = apellido, second = nombre
+        - 3 elements: first = apellido, second+third = nombres
+        - 4 elements: first+second = apellidos, third+fourth = nombres
         
         Args:
-            apellidos_nombres: Name in format "APELLIDOS, NOMBRES"
+            apellidos_nombres: Name in various formats
             
         Returns:
             Tuple of (nombres, apellidos)
@@ -30,21 +39,49 @@ class PersonalDataProcessor:
         # Clean the input
         name_str = str(apellidos_nombres).strip()
         
-        # Split by comma
+        # Check if comma-separated format
         if ',' in name_str:
-            parts = name_str.split(',', 1)  # Split only on first comma
-            apellidos = parts[0].strip()
-            nombres = parts[1].strip() if len(parts) > 1 else ""
+            # Original comma-separated logic
+            parts = name_str.split(',', 1)
+            apellidos_part = parts[0].strip()
+            nombres_part = parts[1].strip() if len(parts) > 1 else ""
+            
+            # Clean up extra spaces
+            nombres = ' '.join(nombres_part.split())
+            apellidos = ' '.join(apellidos_part.split())
+            
+            return nombres, apellidos
+        
         else:
-            # If no comma, assume it's all apellidos
-            apellidos = name_str
-            nombres = ""
-        
-        # Clean up extra spaces
-        nombres = ' '.join(nombres.split())
-        apellidos = ' '.join(apellidos.split())
-        
-        return nombres, apellidos
+            # Space-separated format (no comma)
+            # Split by spaces and filter out empty strings
+            parts = [part.strip() for part in name_str.split() if part.strip()]
+            
+            if len(parts) == 1:
+                # Only one part - treat as apellido
+                return "", parts[0]
+            elif len(parts) == 2:
+                # Two parts: first = apellido, second = nombre
+                apellidos = parts[0]
+                nombres = parts[1]
+                return nombres, apellidos
+            elif len(parts) == 3:
+                # Three parts: first = apellido, second+third = nombres
+                apellidos = parts[0]
+                nombres = f"{parts[1]} {parts[2]}"
+                return nombres, apellidos
+            elif len(parts) == 4:
+                # Four parts: first+second = apellidos, third+fourth = nombres
+                apellidos = f"{parts[0]} {parts[1]}"
+                nombres = f"{parts[2]} {parts[3]}"
+                return nombres, apellidos
+            else:
+                # More than 4 parts - use similar logic as CSV processor
+                # Assume first half are apellidos, second half are nombres
+                mid_point = len(parts) // 2
+                apellidos = ' '.join(parts[:mid_point])
+                nombres = ' '.join(parts[mid_point:])
+                return nombres, apellidos
     
     def create_full_name_standardized(self, nombres: str, apellidos: str) -> str:
         """
@@ -69,54 +106,130 @@ class PersonalDataProcessor:
         else:
             return ""
     
-    def extract_position_info(self, cargo: str) -> Dict[str, any]:
+    
+    def extract_position_info(self, cargo: str, categoria_ordenamiento: str = "", 
+                             subcategoria_ordenamiento: str = "", categoria_especial: str = "",
+                             dependencia: str = "", tipo_contrato: str = "") -> Dict[str, any]:
         """
-        Extract position information from the "Cargo" field
+        Extract position information from the "Cargo" field and academic ranking columns
         
         Args:
             cargo: The cargo/position string
+            categoria_ordenamiento: Academic category (e.g., "Titular", "Asociado")
+            subcategoria_ordenamiento: Academic subcategory (e.g., "2", "3")
+            categoria_especial: Special category (e.g., "Emerito")
             
         Returns:
             Dictionary with extracted information
         """
-        if not cargo or pd.isna(cargo):
-            return {
-                'tipo': 'NO_ESPECIFICADO',
-                'subcategoria': None,
-                'cargo_original': ''
-            }
+        # Always store the original cargo
+        cargo_clean = str(cargo).strip() if cargo and not pd.isna(cargo) else ""
+        if not cargo_clean:
+            cargo_clean = "N/A"
         
-        cargo_clean = str(cargo).strip()
         result = {
-            'tipo': '',
+            'tipo': None,
             'subcategoria': None,
-            'cargo_original': cargo_clean
+            'cargo_original': cargo_clean,
+            'dependencia': dependencia.strip() if dependencia and not pd.isna(dependencia) else None,
+            'contrato': tipo_contrato.strip() if tipo_contrato and not pd.isna(tipo_contrato) else None
         }
         
-        # Check if it's a "Profesor/a" position
-        profesor_pattern = r'^Profesor[/a]*\s+(.+)$'
-        match = re.match(profesor_pattern, cargo_clean, re.IGNORECASE)
+        print(f"DEBUG: Processing - Cargo: '{cargo_clean}', Categoria: '{categoria_ordenamiento}', Subcategoria: '{subcategoria_ordenamiento}', Especial: '{categoria_especial}'")
         
-        if match:
-            # Extract the part after "Profesor/a"
-            position_part = match.group(1).strip()
+        # Clean academic ranking fields
+        categoria_clean = str(categoria_ordenamiento).strip() if categoria_ordenamiento and not pd.isna(categoria_ordenamiento) else ""
+        subcategoria_clean = str(subcategoria_ordenamiento).strip() if subcategoria_ordenamiento and not pd.isna(subcategoria_ordenamiento) else ""
+        especial_clean = str(categoria_especial).strip() if categoria_especial and not pd.isna(categoria_especial) else ""
+        
+        # Priority 1: Check for "Categoría Especial" first (highest priority)
+        if especial_clean and especial_clean.upper() != "N/A":
+            print(f"DEBUG: Found special category: '{especial_clean}'")
             
-            # Look for academic ranking with number (e.g., "Titular 3", "Asociado 2")
-            ranking_pattern = r'^(\w+)\s+(\d+)$'
-            ranking_match = re.match(ranking_pattern, position_part)
-            
-            if ranking_match:
-                result['tipo'] = ranking_match.group(1).upper()
-                result['subcategoria'] = int(ranking_match.group(2))
-            else:
-                # Just the position without number
-                result['tipo'] = position_part.upper()
+            # Handle special categories like "Profesor Emerito"
+            if "PROFESOR" in especial_clean.upper() and "EMERITO" in especial_clean.upper():
+                result['tipo'] = "EMERITO"
                 result['subcategoria'] = None
-        else:
-            # Not a professor position, store the full cargo
-            result['tipo'] = cargo_clean
-            result['subcategoria'] = None
+            elif "EMERITO" in especial_clean.upper():
+                result['tipo'] = "EMERITO"
+                result['subcategoria'] = None
+            else:
+                # For other special categories, use as is
+                result['tipo'] = especial_clean.upper()
+                result['subcategoria'] = None
+            
+            print(f"DEBUG: Special category result: tipo='{result['tipo']}', subcategoria={result['subcategoria']}")
+            return result
         
+        # Priority 2: Check if cargo indicates professor position
+        cargo_is_professor = False
+        if cargo_clean and cargo_clean.upper() != "N/A":
+            profesor_pattern = r'^Profesor[/a]*\s+(.+)$'
+            match = re.match(profesor_pattern, cargo_clean, re.IGNORECASE)
+            
+            if match:
+                cargo_is_professor = True
+                position_part = match.group(1).strip()
+                print(f"DEBUG: Cargo indicates professor: '{position_part}'")
+                
+                # Try to extract tipo and subcategoria from cargo
+                ranking_pattern = r'^(\w+)\s+(\d+)$'
+                ranking_match = re.match(ranking_pattern, position_part)
+                
+                if ranking_match:
+                    result['tipo'] = ranking_match.group(1).upper()
+                    result['subcategoria'] = int(ranking_match.group(2))
+                    print(f"DEBUG: Extracted from cargo - tipo='{result['tipo']}', subcategoria={result['subcategoria']}")
+                else:
+                    result['tipo'] = position_part.upper()
+                    result['subcategoria'] = None
+                    print(f"DEBUG: Extracted from cargo - tipo='{result['tipo']}', no subcategoria")
+        
+        # Priority 3: Check "Categoría de ordenamiento" and "Subcategoría de ordenamiento"
+        # This applies whether cargo is professor or not (administrative staff who also teach)
+        if categoria_clean and categoria_clean.upper() != "N/A":
+            print(f"DEBUG: Found categoria de ordenamiento: '{categoria_clean}'")
+            
+            # If we already have tipo from cargo but categoria provides more specific info, use categoria
+            # OR if cargo is not professor but categoria exists (administrative staff who teach)
+            if not cargo_is_professor or not result['tipo']:
+                result['tipo'] = categoria_clean.upper()
+                print(f"DEBUG: Using categoria de ordenamiento as tipo: '{result['tipo']}'")
+            
+            # Handle subcategoria from subcategoria_ordenamiento
+            if subcategoria_clean and subcategoria_clean.upper() != "N/A":
+                try:
+                    # Try to extract number from subcategoria column
+                    # Handle cases like "2", "Titular 2", or just "Titular"
+                    if subcategoria_clean.isdigit():
+                        result['subcategoria'] = int(subcategoria_clean)
+                        print(f"DEBUG: Direct subcategoria number: {result['subcategoria']}")
+                    else:
+                        # Try to extract number from text like "Titular 2"
+                        number_match = re.search(r'(\d+)', subcategoria_clean)
+                        if number_match:
+                            result['subcategoria'] = int(number_match.group(1))
+                            print(f"DEBUG: Extracted subcategoria number: {result['subcategoria']}")
+                        else:
+                            # If no number, use the categoria from subcategoria if different
+                            if subcategoria_clean.upper() != categoria_clean.upper():
+                                # This might be a different academic level
+                                print(f"DEBUG: Subcategoria text differs from categoria: '{subcategoria_clean}'")
+                            result['subcategoria'] = None
+                except (ValueError, TypeError):
+                    print(f"DEBUG: Could not parse subcategoria: '{subcategoria_clean}'")
+                    result['subcategoria'] = None
+        
+        # Priority 4: If no academic ranking found anywhere, set tipo based on cargo or default
+        if not result['tipo']:
+            if cargo_clean and cargo_clean.upper() != "N/A":
+                result['tipo'] = cargo_clean.upper()
+                print(f"DEBUG: Using full cargo as tipo: '{result['tipo']}'")
+            else:
+                result['tipo'] = "N/A"
+                print(f"DEBUG: No information found, setting tipo to N/A")
+        
+        print(f"DEBUG: Final result: {result}")
         return result
     
     def calculate_name_similarity(self, name1: str, name2: str) -> float:
@@ -140,76 +253,103 @@ class PersonalDataProcessor:
         # Calculate similarity using SequenceMatcher
         return SequenceMatcher(None, norm1, norm2).ratio()
     
+    # Update this part in the find_matching_professors method in personal_data_processor.py:
+    
     def find_matching_professors(self, personal_data_df: pd.DataFrame) -> List[Dict]:
         """
         Find matching professors between personal data and existing database
-        
-        Args:
-            personal_data_df: DataFrame with personal data
-            
-        Returns:
-            List of matching records with confidence scores
+        MODIFIED: Find best personal data match for each existing professor
         """
         matches = []
         
-        # Get all existing professors
+        # Get all existing professors (these are the ones we want to enhance)
         existing_professors = self.db_manager.get_all_profesores()
         
+        # Create a lookup dictionary for personal data records
+        personal_data_records = []
         for index, row in personal_data_df.iterrows():
             # Skip if not from engineering faculty
-            if 'FACULTAD DE INGENIERÍA' not in str(row.get('Facultad / Unidad', '')):
+            if 'FACULTAD DE INGENIERÍA' not in str(row.get('Facultad_Unidad', '')):
                 continue
-            
+                
             # Parse name from personal data
-            apellidos_nombres = row.get('Apellido y Nombre', '')
+            apellidos_nombres = row.get('Apellido_y_Nombre', '')
             nombres, apellidos = self.standardize_name_from_personal_data(apellidos_nombres)
             
             if not nombres and not apellidos:
                 continue
-            
+                
             full_name_personal = self.create_full_name_standardized(nombres, apellidos)
             
             # Extract position info
             cargo = row.get('Cargo', '')
-            position_info = self.extract_position_info(cargo)
+            categoria_ordenamiento = row.get('Categoría_de_ordenamiento', '')
+            subcategoria_ordenamiento = row.get('Subcategoría_de_ordenamiento', '')
+            categoria_especial = row.get('Categoría_Especial', '')
+            dependencia = row.get('Dependencia', '')
+            tipo_contrato = row.get('Tipo_de_contrato', '')
             
-            # Find best matching professor in database
-            best_match = None
+            position_info = self.extract_position_info(
+                cargo, categoria_ordenamiento, subcategoria_ordenamiento, 
+                categoria_especial, dependencia, tipo_contrato
+            )
+            
+            personal_data_records.append({
+                'personal_data': {
+                    'person_id': row.get('Número_de_persona', ''),
+                    'apellidos_nombres': apellidos_nombres,
+                    'nombres': nombres,
+                    'apellidos': apellidos,
+                    'full_name_standardized': full_name_personal,
+                    'cargo': cargo,
+                    'departamento': row.get('Dependencia', ''),
+                    'facultad': row.get('Facultad_Unidad', ''),
+                    'categoria_ordenamiento': categoria_ordenamiento,
+                    'subcategoria_ordenamiento': subcategoria_ordenamiento,
+                    'categoria_especial': categoria_especial,
+                    'dependencia': dependencia,
+                    'tipo_contrato': tipo_contrato
+                },
+                'position_info': position_info
+            })
+        
+        # Now, for each existing professor, find the best match in personal data
+        for existing_prof in existing_professors:
+            existing_full_name = existing_prof['full_name']
+            
+            best_match_record = None
             best_score = 0
             
-            for prof in existing_professors:
-                existing_full_name = prof['full_name']
-                similarity = self.calculate_name_similarity(full_name_personal, existing_full_name)
+            # Search through all personal data records for the best match
+            for record in personal_data_records:
+                personal_full_name = record['personal_data']['full_name_standardized']
+                similarity = self.calculate_name_similarity(existing_full_name, personal_full_name)
                 
                 if similarity > best_score and similarity >= self.match_threshold:
                     best_score = similarity
-                    best_match = prof
+                    best_match_record = record
             
-            if best_match:
+            # If we found a good match, add it to results
+            if best_match_record:
+                print(f"DEBUG: Match found for existing professor {existing_full_name} -> "
+                      f"personal data: {best_match_record['personal_data']['full_name_standardized']}, "
+                      f"confidence: {best_score:.3f}")
+                
                 match_record = {
-                    'personal_data': {
-                        'person_id': row.get('Número de persona', ''),
-                        'apellidos_nombres': apellidos_nombres,
-                        'nombres': nombres,
-                        'apellidos': apellidos,
-                        'full_name_standardized': full_name_personal,
-                        'cargo': cargo,
-                        'departamento': row.get('Dependencia', ''),
-                        'facultad': row.get('Facultad / Unidad', ''),
-                        'categoria_ordenamiento': row.get('Categoría de ordenamiento', ''),
-                        'subcategoria_ordenamiento': row.get('Subcategoría de ordenamiento', ''),
-                        'categoria_especial': row.get('Categoría Especial', '')
-                    },
-                    'existing_professor': best_match,
-                    'position_info': position_info,
+                    'personal_data': best_match_record['personal_data'],
+                    'existing_professor': existing_prof,
+                    'position_info': best_match_record['position_info'],
                     'match_confidence': best_score,
                     'match_type': 'automatic' if best_score >= 0.95 else 'review_needed'
                 }
                 matches.append(match_record)
+            else:
+                print(f"DEBUG: No match found for existing professor {existing_full_name}")
         
         # Sort by confidence score (highest first)
         matches.sort(key=lambda x: x['match_confidence'], reverse=True)
         
+        print(f"DEBUG: Found {len(matches)} matches for {len(existing_professors)} existing professors")
         return matches
     
     def load_personal_data_csv(self, file_path: str) -> pd.DataFrame:
@@ -227,11 +367,11 @@ class PersonalDataProcessor:
             
             # Validate required columns
             required_columns = [
-                'Facultad / Unidad',
+                'Facultad_Unidad',
                 'Dependencia', 
                 'Cargo',
-                'Número de persona',
-                'Apellido y Nombre'
+                'Número_de_persona',
+                'Apellido_y_Nombre'
             ]
             
             missing_columns = [col for col in required_columns if col not in df.columns]
@@ -246,12 +386,7 @@ class PersonalDataProcessor:
     def get_match_statistics(self, matches: List[Dict]) -> Dict:
         """
         Get statistics about the matching process
-        
-        Args:
-            matches: List of match records
-            
-        Returns:
-            Dictionary with statistics
+        UPDATED: Statistics now reflect existing professors being matched
         """
         if not matches:
             return {
@@ -260,14 +395,16 @@ class PersonalDataProcessor:
                 'review_needed': 0,
                 'avg_confidence': 0,
                 'position_types': {},
-                'departments': {}
+                'departments': {},
+                'existing_professors_matched': 0,
+                'existing_professors_unmatched': 0
             }
         
         automatic = sum(1 for m in matches if m['match_type'] == 'automatic')
         review_needed = sum(1 for m in matches if m['match_type'] == 'review_needed')
         avg_confidence = sum(m['match_confidence'] for m in matches) / len(matches)
         
-        # Count position types
+        # Count position types from personal data
         position_types = {}
         departments = {}
         
@@ -278,13 +415,18 @@ class PersonalDataProcessor:
             position_types[tipo] = position_types.get(tipo, 0) + 1
             departments[dept] = departments.get(dept, 0) + 1
         
+        # Get total existing professors for comparison
+        total_existing = len(self.db_manager.get_all_profesores())
+        
         return {
             'total_matches': len(matches),
             'automatic_matches': automatic,
             'review_needed': review_needed,
             'avg_confidence': avg_confidence,
             'position_types': position_types,
-            'departments': departments
+            'departments': departments,
+            'existing_professors_matched': len(matches),
+            'existing_professors_unmatched': total_existing - len(matches)
         }
     
     def apply_approved_matches(self, approved_matches: List[Dict]) -> Dict:
@@ -315,7 +457,9 @@ class PersonalDataProcessor:
                     person_id=int(personal_data['person_id']) if personal_data['person_id'] else None,
                     cargo_original=position_info['cargo_original'],
                     tipo_enhanced=position_info['tipo'],
-                    subcategoria=position_info['subcategoria']
+                    subcategoria=position_info['subcategoria'],
+                    dependencia = position_info['dependencia'],
+                    contrato = position_info['contrato'],
                 )
                 
                 if success:
@@ -324,7 +468,9 @@ class PersonalDataProcessor:
                         'id': prof_id,
                         'name': match['existing_professor']['full_name'],
                         'new_tipo': position_info['tipo'],
-                        'subcategoria': position_info['subcategoria']
+                        'subcategoria': position_info['subcategoria'],
+                        'dependencia': position_info['dependencia'],
+                        'contrato': position_info['contrato']
                     })
                 else:
                     results['errors'].append(f"Failed to update professor ID {prof_id}")
@@ -414,7 +560,7 @@ class PersonalDataLinkingEngine:
             # Get file information
             result['file_info'] = {
                 'total_rows': len(df),
-                'engineering_faculty_rows': len(df[df['Facultad / Unidad'].str.contains('FACULTAD DE INGENIERÍA', na=False)]),
+                'engineering_faculty_rows': len(df[df['Facultad_Unidad'].str.contains('FACULTAD DE INGENIERÍA', na=False)]),
                 'file_name': os.path.basename(file_path),
                 'file_size_mb': round(os.path.getsize(file_path) / (1024 * 1024), 2)
             }
@@ -495,7 +641,9 @@ class PersonalDataLinkingEngine:
                 'apellidos': personal_data['apellidos'],
                 'cargo_original': personal_data['cargo'],
                 'departamento_oficial': personal_data['departamento'],
-                'facultad': personal_data['facultad']
+                'facultad': personal_data['facultad'],
+                'dependencia': personal_data.get('dependencia', ''),
+                'tipo_contrato': personal_data.get('tipo_contrato', ''),
             },
             
             # Proposed changes
@@ -503,7 +651,9 @@ class PersonalDataLinkingEngine:
                 'new_tipo': position_info['tipo'],
                 'subcategoria': position_info['subcategoria'],
                 'cargo_original': position_info['cargo_original'],
-                'person_id': personal_data['person_id']
+                'person_id': personal_data['person_id'],
+                'dependencia': personal_data.get('dependencia'),
+                'tipo_contrato': personal_data.get('tipo_contrato'),
             },
             
             # Comparison flags
@@ -673,11 +823,11 @@ def validate_personal_data_file(file_path: str) -> Dict:
         
         # Check required columns
         required_columns = [
-            'Facultad / Unidad',
+            'Facultad_Unidad',
             'Dependencia', 
             'Cargo',
-            'Número de persona',
-            'Apellido y Nombre'
+            'Número_de_persona',
+            'Apellido_y_Nombre'
         ]
         
         missing_columns = [col for col in required_columns if col not in df.columns]
@@ -685,8 +835,8 @@ def validate_personal_data_file(file_path: str) -> Dict:
             result['errors'].append(f"Missing required columns: {', '.join(missing_columns)}")
         
         # Check for engineering faculty data
-        if 'Facultad / Unidad' in df.columns:
-            engineering_count = len(df[df['Facultad / Unidad'].str.contains('FACULTAD DE INGENIERÍA', na=False)])
+        if 'Facultad_Unidad' in df.columns:
+            engineering_count = len(df[df['Facultad_Unidad'].str.contains('FACULTAD DE INGENIERÍA', na=False)])
             if engineering_count == 0:
                 result['warnings'].append("No engineering faculty records found")
             else:
@@ -706,3 +856,26 @@ def validate_personal_data_file(file_path: str) -> Dict:
         result['errors'].append(f"Error reading file: {str(e)}")
     
     return result
+
+
+def test_subcategory_extraction():
+    """Test subcategory extraction with sample data"""
+    test_cases = [
+        "Profesor Titular 3",
+        "Profesora Titular 2", 
+        "Profesor Asociado 1",
+        "Profesora Asistente",
+        "Profesor Cátedra",
+        "Director Departamento"
+    ]
+    
+    processor = PersonalDataProcessor(None)
+    
+    print("\n=== TESTING SUBCATEGORY EXTRACTION ===")
+    for cargo in test_cases:
+        result = processor.extract_position_info(cargo)
+        print(f"Input: '{cargo}' -> Output: {result}")
+    print("=== END TEST ===\n")
+    
+
+test_subcategory_extraction()

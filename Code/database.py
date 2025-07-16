@@ -4,7 +4,7 @@ from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
 class DatabaseManager:
-    def __init__(self, db_path='university_schedule.db'):
+    def __init__(self, db_path='Bases de Datos/university_schedule.db'):
         self.db_path = db_path
         self.create_schema()
     

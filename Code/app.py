@@ -95,6 +95,9 @@ class RECOPSimulator:
         
         # Quick actions section
         self.create_quick_actions_section(main_container)
+        
+        #Recop
+        self.create_recop_section(main_container)
     
     def create_welcome_section(self, parent):
         """Create welcome section"""
@@ -333,7 +336,109 @@ class RECOPSimulator:
         )
         self.dept_professors_btn.pack(side=tk.LEFT, padx=(0, 5))    
         
+    
+    def create_recop_section(self, parent):
+        """Create RECOP operations section"""
+        recop_frame = ttk.LabelFrame(parent, text="RECOP", padding="15")
+        recop_frame.pack(fill=tk.X, pady=(0, 15))
         
+        # Instructions
+        instructions = ttk.Label(recop_frame, 
+                               text="Herramientas para cálculos automáticos del sistema RECOP:",
+                               font=("Arial", 11))
+        instructions.pack(pady=(0, 10))
+        
+        # Button container
+        button_container = tk.Frame(recop_frame)
+        button_container.pack(fill=tk.X)
+        
+        # First row - PER calculations (levels 1-2)
+        per_row = tk.Frame(button_container)
+        per_row.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(per_row, text="PER (Niveles 1-2):", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Calculate PER button
+        self.calculate_per_btn = ttk.Button(
+            per_row,
+            text="⚙️ Calcular PER",
+            command=self.calculate_per_automatic,
+            state="disabled",
+            style="Green.TButton"
+        )
+        self.calculate_per_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # View PER statistics button
+        self.view_per_stats_btn = ttk.Button(
+            per_row,
+            text="📊 Estadísticas PER",
+            command=self.view_per_statistics,
+            state="disabled",
+            style="Blue.TButton"
+        )
+        self.view_per_stats_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Reset PER button
+        self.reset_per_btn = ttk.Button(
+            per_row,
+            text="🔄 Resetear PER",
+            command=self.reset_per_values,
+            state="disabled",
+            style="Orange.TButton"
+        )
+        self.reset_per_btn.pack(side=tk.LEFT)
+        
+        # Second row - Tamaño Estándar calculations (levels 3-4)
+        tamano_row = tk.Frame(button_container)
+        tamano_row.pack(fill=tk.X)
+        
+        ttk.Label(tamano_row, text="Tamaño Estándar (Niveles 3-4):", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Calculate Tamaño Estándar button
+        self.calculate_tamano_btn = ttk.Button(
+            tamano_row,
+            text="📐 Calcular Tamaño Estándar",
+            command=self.calculate_tamano_estandar_automatic,
+            state="disabled",
+            style="Green.TButton"
+        )
+        self.calculate_tamano_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # View Tamaño Estándar statistics button
+        self.view_tamano_stats_btn = ttk.Button(
+            tamano_row,
+            text="📊 Ver Tamaño Estándar",
+            command=self.view_tamano_estandar_statistics,
+            state="disabled",
+            style="Blue.TButton"
+        )
+        self.view_tamano_stats_btn.pack(side=tk.LEFT)
+        
+            # Third row - PER calculations (levels 3-4) - NEW
+        per_34_row = tk.Frame(button_container)
+        per_34_row.pack(fill=tk.X)
+        
+        ttk.Label(per_34_row, text="PER (Niveles 3-4):", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Calculate PER for levels 3-4 button
+        self.calculate_per_34_btn = ttk.Button(
+            per_34_row,
+            text="⚙️ Calcular PER con Tamaño Estándar",
+            command=self.calculate_per_levels_3_4_automatic,
+            state="disabled",
+            style="Green.TButton"
+        )
+        self.calculate_per_34_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Reset PER for levels 3-4 button
+        self.reset_per_34_btn = ttk.Button(
+            per_34_row,
+            text="🔄 Resetear PER (3-4)",
+            command=self.reset_per_values_34,
+            state="disabled",
+            style="Orange.TButton"
+        )
+        self.reset_per_34_btn.pack(side=tk.LEFT)
         
     
     def create_status_bar(self):
@@ -393,7 +498,9 @@ class RECOPSimulator:
             'view_tables_btn', 'stats_btn', 'backup_btn', 'search_btn', 'reset_btn',
             'prof_sessions_btn', 'prof_sections_btn', 'materia_sections_btn', 'dept_professors_btn', 'prof_materias_btn',
             'create_departamento_btn', 'create_profesor_btn', 'create_materia_btn', 'create_seccion_btn',
-            'upload_personal_btn'
+            'upload_personal_btn', 'calculate_per_btn', 'view_per_stats_btn', 'reset_per_btn',
+            'calculate_tamano_btn', 'view_tamano_stats_btn',
+            'calculate_per_34_btn', 'reset_per_34_btn'
         ]
         
         for btn_name in buttons:
@@ -406,7 +513,9 @@ class RECOPSimulator:
             'view_tables_btn', 'stats_btn', 'backup_btn', 'search_btn',
             'prof_sessions_btn', 'prof_sections_btn','materia_sections_btn', 'dept_professors_btn', 'prof_materias_btn',
             'create_departamento_btn', 'create_profesor_btn', 'create_materia_btn', 'create_seccion_btn',
-            'upload_personal_btn'
+            'upload_personal_btn', 'calculate_per_btn', 'view_per_stats_btn', 'reset_per_btn',
+            'calculate_tamano_btn', 'view_tamano_stats_btn',
+            'calculate_per_34_btn', 'reset_per_34_btn'
         ]
         
         for btn_name in buttons:
@@ -718,8 +827,629 @@ class RECOPSimulator:
         )
         
         UIHelpers.show_info(self.root, "Acerca del Simulador RECOP", about_text)
+        
+    def calculate_per_automatic(self):
+        """Calculate PER values automatically for nivel 1 and 2 materias"""
+        try:
+            # Get sessions that need PER calculation
+            sessions = self.db_manager.get_sessions_for_per_calculation()
+            
+            if not sessions:
+                messagebox.showinfo("Sin datos", "No se encontraron sesiones de nivel 1 o 2 para calcular PER.")
+                return
+            
+            # Calculate new PER values
+            updates = []
+            for session in sessions:
+                new_per = self.calculate_per_formula(session['tipo_horario'], session['inscritos'])
+                
+                # Only update if PER changed
+                if new_per != session['current_per']:
+                    updates.append({
+                        'sesion_id': session['sesion_id'],
+                        'new_per': new_per,
+                        'old_per': session['current_per'],
+                        'materia': session['materia_codigo'],
+                        'tipo_horario': session['tipo_horario'],
+                        'inscritos': session['inscritos']
+                    })
+            
+            if not updates:
+                messagebox.showinfo("Sin cambios", "Todos los valores PER ya están actualizados según la fórmula.")
+                return
+            
+            # Show confirmation with summary
+            confirm_msg = (
+                f"¿Aplicar cálculo automático de PER?\n\n"
+                f"Se actualizarán {len(updates)} sesiones de {len(sessions)} totales.\n\n"
+                f"Ejemplo de cambios:\n"
+            )
+            
+            # Show first 3 examples
+            for i, update in enumerate(updates[:3]):
+                confirm_msg += f"• {update['materia']}: {update['old_per']} → {update['new_per']}\n"
+            
+            if len(updates) > 3:
+                confirm_msg += f"  ... y {len(updates) - 3} más"
+            
+            if not messagebox.askyesno("Confirmar Cálculo", confirm_msg):
+                return
+            
+            # Apply updates
+            updated_count = self.db_manager.bulk_update_per_values(updates)
+            
+            if updated_count > 0:
+                messagebox.showinfo("Cálculo Completado", 
+                                   f"Se actualizaron {updated_count} valores PER exitosamente.")
+                self.status_var.set(f"PER calculado automáticamente - {updated_count} sesiones actualizadas")
+            else:
+                messagebox.showerror("Error", "No se pudieron actualizar los valores PER.")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al calcular PER: {str(e)}")
     
-        # Add this method to the RECOPSimulator class in app.py:
+    def calculate_per_formula(self, tipo_horario: str, inscritos: int) -> int:
+        """
+        Calculate PER value based on tipo_horario and inscritos
+        
+        TODO: Implement your specific formula here
+        
+        Args:
+            tipo_horario: Type of schedule (e.g., 'Magistral', 'Laboratorio')
+            inscritos: Number of enrolled students
+            
+        Returns:
+            int: Calculated PER value
+        """
+        # PLACEHOLDER - Replace with your actual formula
+        # This is just a simple example
+        
+        if not tipo_horario:
+            return 1
+        
+        tipo_upper = tipo_horario.upper()
+        per = 0
+        # Base PER calculation (example logic)
+        if tipo_upper == 'MAGISTRAL' or tipo_upper == 'TEORICA':
+            if inscritos <= 10:
+                per = 10
+            elif 10 < inscritos <= 60:
+                per = inscritos
+            elif 60 < inscritos <= 120:
+                per = 60 + ((inscritos - 60)/2)
+            elif 120 < inscritos:
+                per = 90
+        elif tipo_upper == 'LABORATORIO' or tipo_upper == 'TALLER Y PBL':
+            if inscritos <= 6:
+                per = 6
+            elif 6 < inscritos <= 25:
+                per = inscritos
+            elif 25 < inscritos:
+                per = 90
+    
+        
+        return per
+    
+    def view_per_statistics(self):
+        """View PER statistics"""
+        try:
+            stats = self.db_manager.get_per_statistics()
+            
+            if not stats:
+                messagebox.showinfo("Estadísticas PER", "No hay datos PER disponibles.")
+                return
+            
+            # Create statistics window
+            stats_window = tk.Toplevel(self.root)
+            stats_window.title("Estadísticas PER")
+            stats_window.geometry("500x400")
+            stats_window.transient(self.root)
+            stats_window.grab_set()
+            
+            # Main frame
+            main_frame = ttk.Frame(stats_window, padding="20")
+            main_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Title
+            ttk.Label(main_frame, text="Estadísticas de PER", 
+                     font=("Arial", 16, "bold")).pack(pady=(0, 20))
+            
+            # Statistics display
+            stats_text = tk.Text(main_frame, wrap=tk.WORD, height=15, width=50)
+            scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=stats_text.yview)
+            stats_text.configure(yscrollcommand=scrollbar.set)
+            
+            # Calculate statistics
+            total_sessions = sum(stats.values())
+            
+            stats_content = f"Total de sesiones: {total_sessions}\n\n"
+            stats_content += "Distribución por valor PER:\n"
+            stats_content += "=" * 30 + "\n"
+            
+            for per_value, count in sorted(stats.items()):
+                percentage = (count / total_sessions) * 100
+                stats_content += f"PER {per_value}: {count:>6} sesiones ({percentage:>5.1f}%)\n"
+            
+            stats_text.insert(tk.END, stats_content)
+            stats_text.config(state=tk.DISABLED)
+            
+            # Pack text widget and scrollbar
+            stats_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            # Close button
+            ttk.Button(main_frame, text="Cerrar", 
+                      command=stats_window.destroy).pack(pady=(20, 0))
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al obtener estadísticas: {str(e)}")
+    
+    def reset_per_values(self):
+        """Reset PER values to 0 for levels 1 and 2"""
+        if not messagebox.askyesno("Confirmar Reset", 
+                                  "¿Está seguro de que desea resetear todos los valores PER "
+                                  "a 0 para materias de nivel 1 y 2?\n\n"
+                                  "Esta acción no se puede deshacer."):
+            return
+        
+        try:
+            count = self.db_manager.reset_per_values_for_levels([1, 2])
+            
+            if count > 0:
+                messagebox.showinfo("Reset Completado", 
+                                   f"Se resetearon {count} valores PER a 0 para materias de nivel 1 y 2.")
+                self.status_var.set(f"PER reseteado - {count} sesiones actualizadas")
+            else:
+                messagebox.showinfo("Sin cambios", "No se encontraron sesiones para resetear.")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al resetear valores PER: {str(e)}")
+    
+    def calculate_tamano_estandar_automatic(self):
+        """Calculate Tamaño Estándar automatically for nivel 3 and 4 materias"""
+        try:
+            # Get sessions for calculation
+            sessions = self.db_manager.get_sessions_for_tamano_estandar_calculation()
+            
+            if not sessions:
+                messagebox.showinfo("Sin datos", "No se encontraron sesiones de nivel 3 o 4 para calcular Tamaño Estándar.")
+                return
+            
+            # Calculate Tamaño Estándar
+            results = self.db_manager.calculate_tamano_estandar_by_department()
+            
+            if not results:
+                messagebox.showinfo("Sin resultados", "No se pudieron calcular valores de Tamaño Estándar.")
+                return
+            
+            # Show confirmation with summary
+            total_departments = len(results)
+            total_sections = sum(
+                dept_data['TEORICO']['total_sections'] + dept_data['PRACTICO']['total_sections']
+                for dept_data in results.values()
+            )
+            
+            confirm_msg = (
+                f"¿Proceder con el cálculo de Tamaño Estándar?\n\n"
+                f"Se analizarán {total_sections} secciones en {total_departments} departamentos.\n\n"
+                f"El cálculo se realizará por:\n"
+                f"• Departamento\n"
+                f"• Tipo de curso (Teórico/Práctico)\n"
+                f"• Promedio de estudiantes por sección"
+            )
+            
+            if not messagebox.askyesno("Confirmar Cálculo", confirm_msg):
+                return
+            
+            # Show results immediately
+            self.show_tamano_estandar_results(results)
+            
+            self.status_var.set(f"Tamaño Estándar calculado - {total_departments} departamentos analizados")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al calcular Tamaño Estándar: {str(e)}")
+
+    def show_tamano_estandar_results(self, results):
+        """Show Tamaño Estándar calculation results in a window"""
+        # Create results window
+        results_window = tk.Toplevel(self.root)
+        results_window.title("Resultados - Tamaño Estándar")
+        results_window.geometry("800x600")
+        results_window.transient(self.root)
+        results_window.grab_set()
+        
+        # Main frame
+        main_frame = ttk.Frame(results_window, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        title_frame = ttk.Frame(main_frame)
+        title_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        ttk.Label(title_frame, text="Tamaño Estándar por Departamento", 
+                font=("Arial", 16, "bold")).pack(side=tk.LEFT)
+        
+        ttk.Button(title_frame, text="✕ Cerrar", 
+                command=results_window.destroy, style="Red.TButton").pack(side=tk.RIGHT)
+        
+        # Results table
+        table_frame = ttk.Frame(main_frame)
+        table_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Create treeview
+        columns = ('Departamento', 'Tipo', 'Tamaño Estándar', 'Secciones', 'Total Estudiantes')
+        tree = ttk.Treeview(table_frame, columns=columns, show='headings', height=20)
+        
+        # Define columns
+        tree.heading('Departamento', text='Departamento')
+        tree.heading('Tipo', text='Tipo Curso')
+        tree.heading('Tamaño Estándar', text='Tamaño Estándar')
+        tree.heading('Secciones', text='Secciones')
+        tree.heading('Total Estudiantes', text='Total Estudiantes')
+        
+        tree.column('Departamento', width=200)
+        tree.column('Tipo', width=100)
+        tree.column('Tamaño Estándar', width=120)
+        tree.column('Secciones', width=100)
+        tree.column('Total Estudiantes', width=130)
+        
+        # Add data
+        for dept, dept_data in sorted(results.items()):
+            for course_type in ['TEORICO', 'PRACTICO']:
+                data = dept_data[course_type]
+                if data['total_sections'] > 0:
+                    tree.insert('', tk.END, values=(
+                        dept,
+                        course_type,
+                        f"{data['tamano_estandar']:.2f}",
+                        data['total_sections'],
+                        data['total_inscritos']
+                    ))
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Export button
+        export_frame = ttk.Frame(main_frame)
+        export_frame.pack(fill=tk.X, pady=(20, 0))
+        
+        ttk.Button(export_frame, text="📄 Exportar a Consola", 
+                command=lambda: self.export_tamano_estandar_results(results),
+                style="Blue.TButton").pack(side=tk.LEFT)
+
+    def view_tamano_estandar_statistics(self):
+        """View Tamaño Estándar statistics"""
+        try:
+            stats = self.db_manager.get_tamano_estandar_statistics()
+            
+            if not stats['department_details']:
+                messagebox.showinfo("Estadísticas Tamaño Estándar", "No hay datos disponibles para niveles 3 y 4.")
+                return
+            
+            # Show current calculations
+            self.show_tamano_estandar_results(stats['department_details'])
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al obtener estadísticas: {str(e)}")
+
+    def export_tamano_estandar_results(self, results):
+        """Export Tamaño Estándar results to console"""
+        try:
+            print("\n" + "="*80)
+            print("TAMAÑO ESTÁNDAR POR DEPARTAMENTO (NIVELES 3 Y 4)")
+            print("="*80)
+            
+            # Calculate overall statistics
+            total_teorico_sections = 0
+            total_practico_sections = 0
+            total_teorico_students = 0
+            total_practico_students = 0
+            teorico_values = []
+            practico_values = []
+            
+            print(f"{'DEPARTAMENTO':<30} {'TIPO':<10} {'TAMAÑO EST.':<12} {'SECCIONES':<10} {'ESTUDIANTES':<12}")
+            print("-" * 80)
+            
+            for dept, dept_data in sorted(results.items()):
+                for course_type in ['TEORICO', 'PRACTICO']:
+                    data = dept_data[course_type]
+                    if data['total_sections'] > 0:
+                        print(f"{dept:<30} {course_type:<10} {data['tamano_estandar']:>8.2f} {data['total_sections']:>8} {data['total_inscritos']:>10}")
+                        
+                        if course_type == 'TEORICO':
+                            total_teorico_sections += data['total_sections']
+                            total_teorico_students += data['total_inscritos']
+                            teorico_values.append(data['tamano_estandar'])
+                        else:
+                            total_practico_sections += data['total_sections']
+                            total_practico_students += data['total_inscritos']
+                            practico_values.append(data['tamano_estandar'])
+            
+            print("=" * 80)
+            print("RESUMEN GENERAL:")
+            print(f"• Departamentos analizados: {len(results)}")
+            print(f"• Cursos teóricos: {total_teorico_sections} secciones, {total_teorico_students} estudiantes")
+            print(f"• Cursos prácticos: {total_practico_sections} secciones, {total_practico_students} estudiantes")
+            
+            if teorico_values:
+                avg_teorico = sum(teorico_values) / len(teorico_values)
+                print(f"• Promedio Tamaño Estándar Teórico: {avg_teorico:.2f}")
+            
+            if practico_values:
+                avg_practico = sum(practico_values) / len(practico_values)
+                print(f"• Promedio Tamaño Estándar Práctico: {avg_practico:.2f}")
+            
+            print("=" * 80)
+            
+            messagebox.showinfo("Exportado", "Los resultados han sido exportados a la consola.")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al exportar: {str(e)}")
+            
+    def calculate_per_levels_3_4_automatic(self):
+        """Calculate PER values automatically for nivel 3 and 4 materias using Tamaño Estándar"""
+        try:
+            # Calculate PER using Tamaño Estándar
+            result = self.db_manager.calculate_per_for_levels_3_4_with_tamano_estandar()
+            
+            updates = result['updates']
+            tamano_estandar_used = result['tamano_estandar_used']
+            
+            if not updates:
+                messagebox.showinfo("Sin cambios", 
+                                   "No se encontraron sesiones de nivel 3 o 4 para calcular PER, "
+                                   "o todos los valores ya están actualizados.")
+                return
+            
+            # Show confirmation with detailed summary
+            confirm_msg = (
+                f"¿Aplicar cálculo automático de PER para niveles 3 y 4?\n\n"
+                f"Se actualizarán {len(updates)} sesiones.\n\n"
+                f"El cálculo usa los valores de Tamaño Estándar calculados por departamento.\n\n"
+                f"Ejemplo de cambios:\n"
+            )
+            
+            # Show first 3 examples with more detail
+            for i, update in enumerate(updates[:3]):
+                confirm_msg += (f"• {update['materia']} ({update['course_type']}): "
+                              f"{update['old_per']} → {update['new_per']} "
+                              f"(TE: {update['tamano_estandar']:.1f}, PE: {update['inscritos']})\n")
+            
+            if len(updates) > 3:
+                confirm_msg += f"  ... y {len(updates) - 3} más"
+            
+            # Add Tamaño Estándar summary
+            if tamano_estandar_used:
+                confirm_msg += f"\n\nTamaño Estándar utilizados:\n"
+                for dept, types in list(tamano_estandar_used.items())[:3]:
+                    confirm_msg += f"• {dept}: "
+                    type_info = []
+                    for course_type, te_value in types.items():
+                        type_info.append(f"{course_type}={te_value:.1f}")
+                    confirm_msg += ", ".join(type_info) + "\n"
+            
+            if not messagebox.askyesno("Confirmar Cálculo", confirm_msg):
+                return
+            
+            # Apply updates
+            updates_for_db = [
+                {
+                    'sesion_id': update['sesion_id'],
+                    'new_per': update['new_per']
+                }
+                for update in updates
+            ]
+            
+            updated_count = self.db_manager.bulk_update_per_values(updates_for_db)
+            
+            if updated_count > 0:
+                # Show detailed results
+                self.show_per_34_calculation_results(updates, tamano_estandar_used)
+                
+                messagebox.showinfo("Cálculo Completado", 
+                                   f"Se actualizaron {updated_count} valores PER para niveles 3 y 4 exitosamente.")
+                self.status_var.set(f"PER niveles 3-4 calculado - {updated_count} sesiones actualizadas")
+            else:
+                messagebox.showerror("Error", "No se pudieron actualizar los valores PER.")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al calcular PER para niveles 3-4: {str(e)}")
+    
+    def show_per_34_calculation_results(self, updates, tamano_estandar_used):
+        """Show detailed results of PER calculation for levels 3-4"""
+        # Create results window
+        results_window = tk.Toplevel(self.root)
+        results_window.title("Resultados - PER Niveles 3 y 4")
+        results_window.geometry("1000x700")
+        results_window.transient(self.root)
+        results_window.grab_set()
+        
+        # Main frame
+        main_frame = ttk.Frame(results_window, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        title_frame = ttk.Frame(main_frame)
+        title_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        ttk.Label(title_frame, text="Cálculo de PER - Niveles 3 y 4", 
+                 font=("Arial", 16, "bold")).pack(side=tk.LEFT)
+        
+        ttk.Button(title_frame, text="✕ Cerrar", 
+                  command=results_window.destroy, style="Red.TButton").pack(side=tk.RIGHT)
+        
+        # Create notebook for tabs
+        notebook = ttk.Notebook(main_frame)
+        notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Tab 1: Changes made
+        changes_frame = ttk.Frame(notebook)
+        notebook.add(changes_frame, text="Cambios Realizados")
+        
+        # Changes table
+        changes_table_frame = ttk.Frame(changes_frame)
+        changes_table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        columns = ('Materia', 'Departamento', 'Tipo', 'PE', 'TE', 'PER Anterior', 'PER Nuevo')
+        tree = ttk.Treeview(changes_table_frame, columns=columns, show='headings', height=15)
+        
+        # Define columns
+        tree.heading('Materia', text='Materia')
+        tree.heading('Departamento', text='Departamento')
+        tree.heading('Tipo', text='Tipo Curso')
+        tree.heading('PE', text='PE')
+        tree.heading('TE', text='Tamaño Est.')
+        tree.heading('PER Anterior', text='PER Anterior')
+        tree.heading('PER Nuevo', text='PER Nuevo')
+        
+        tree.column('Materia', width=100)
+        tree.column('Departamento', width=150)
+        tree.column('Tipo', width=80)
+        tree.column('PE', width=50)
+        tree.column('TE', width=80)
+        tree.column('PER Anterior', width=80)
+        tree.column('PER Nuevo', width=80)
+        
+        # Add changes data
+        for update in updates:
+            tree.insert('', tk.END, values=(
+                update['materia'],
+                update['departamento'],
+                update['course_type'],
+                update['inscritos'],
+                f"{update['tamano_estandar']:.1f}",
+                update['old_per'],
+                update['new_per']
+            ))
+        
+        # Scrollbar for changes table
+        scrollbar1 = ttk.Scrollbar(changes_table_frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar1.set)
+        
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar1.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Tab 2: Tamaño Estándar used
+        te_frame = ttk.Frame(notebook)
+        notebook.add(te_frame, text="Tamaño Estándar Utilizado")
+        
+        # TE table
+        te_table_frame = ttk.Frame(te_frame)
+        te_table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        te_columns = ('Departamento', 'Tipo Curso', 'Tamaño Estándar', 'Sesiones Afectadas')
+        te_tree = ttk.Treeview(te_table_frame, columns=te_columns, show='headings', height=15)
+        
+        # Define TE columns
+        for col in te_columns:
+            te_tree.heading(col, text=col)
+            te_tree.column(col, width=150)
+        
+        # Add TE data
+        for dept, types in tamano_estandar_used.items():
+            for course_type, te_value in types.items():
+                # Count affected sessions
+                affected_count = len([u for u in updates 
+                                    if u['departamento'] == dept and u['course_type'] == course_type])
+                
+                te_tree.insert('', tk.END, values=(
+                    dept,
+                    course_type,
+                    f"{te_value:.2f}",
+                    affected_count
+                ))
+        
+        # Scrollbar for TE table
+        scrollbar2 = ttk.Scrollbar(te_table_frame, orient=tk.VERTICAL, command=te_tree.yview)
+        te_tree.configure(yscrollcommand=scrollbar2.set)
+        
+        te_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar2.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Export button
+        export_frame = ttk.Frame(main_frame)
+        export_frame.pack(fill=tk.X, pady=(20, 0))
+        
+        ttk.Button(export_frame, text="📄 Exportar a Consola", 
+                  command=lambda: self.export_per_34_results(updates, tamano_estandar_used),
+                  style="Blue.TButton").pack(side=tk.LEFT)
+    
+    def export_per_34_results(self, updates, tamano_estandar_used):
+        """Export PER 3-4 calculation results to console"""
+        try:
+            print("\n" + "="*100)
+            print("CÁLCULO DE PER PARA NIVELES 3 Y 4 CON TAMAÑO ESTÁNDAR")
+            print("="*100)
+            
+            # Print Tamaño Estándar used
+            print("\nTAMAÑO ESTÁNDAR UTILIZADO:")
+            print("-" * 60)
+            print(f"{'DEPARTAMENTO':<30} {'TIPO':<10} {'TAMAÑO EST.':<12} {'SESIONES':<10}")
+            print("-" * 60)
+            
+            for dept, types in tamano_estandar_used.items():
+                for course_type, te_value in types.items():
+                    affected_count = len([u for u in updates 
+                                        if u['departamento'] == dept and u['course_type'] == course_type])
+                    print(f"{dept:<30} {course_type:<10} {te_value:>8.2f} {affected_count:>8}")
+            
+            # Print changes made
+            print(f"\nCAMBIOS REALIZADOS ({len(updates)} sesiones):")
+            print("-" * 100)
+            print(f"{'MATERIA':<12} {'DEPARTAMENTO':<25} {'TIPO':<10} {'PE':<4} {'TE':<6} {'PER ANT':<8} {'PER NUEVO':<10}")
+            print("-" * 100)
+            
+            for update in updates:
+                print(f"{update['materia']:<12} {update['departamento']:<25} {update['course_type']:<10} "
+                      f"{update['inscritos']:<4} {update['tamano_estandar']:>5.1f} {update['old_per']:>7} {update['new_per']:>9}")
+            
+            # Summary statistics
+            print("\n" + "="*100)
+            print("RESUMEN:")
+            total_departments = len(tamano_estandar_used)
+            total_teorico = len([u for u in updates if u['course_type'] == 'TEORICO'])
+            total_practico = len([u for u in updates if u['course_type'] == 'PRACTICO'])
+            
+            print(f"• Total de departamentos procesados: {total_departments}")
+            print(f"• Sesiones teóricas actualizadas: {total_teorico}")
+            print(f"• Sesiones prácticas actualizadas: {total_practico}")
+            print(f"• Total de sesiones actualizadas: {len(updates)}")
+            
+            if updates:
+                avg_per_change = sum(u['new_per'] - u['old_per'] for u in updates) / len(updates)
+                print(f"• Cambio promedio de PER: {avg_per_change:+.2f}")
+            
+            print("="*100)
+            
+            messagebox.showinfo("Exportado", "Los resultados han sido exportados a la consola.")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al exportar: {str(e)}")
+    
+    def reset_per_values_34(self):
+        """Reset PER values to 0 for levels 3 and 4"""
+        if not messagebox.askyesno("Confirmar Reset", 
+                                  "¿Está seguro de que desea resetear todos los valores PER "
+                                  "a 0 para materias de nivel 3 y 4?\n\n"
+                                  "Esta acción no se puede deshacer."):
+            return
+        
+        try:
+            count = self.db_manager.reset_per_values_for_levels([3, 4])
+            
+            if count > 0:
+                messagebox.showinfo("Reset Completado", 
+                                   f"Se resetearon {count} valores PER a 0 para materias de nivel 3 y 4.")
+                self.status_var.set(f"PER reseteado - {count} sesiones actualizadas (niveles 3-4)")
+            else:
+                messagebox.showinfo("Sin cambios", "No se encontraron sesiones para resetear.")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al resetear valores PER: {str(e)}")
     
     def apply_dark_mode_to_widgets(self, parent=None):
         """Apply dark mode colors to regular tkinter widgets"""

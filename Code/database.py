@@ -56,6 +56,7 @@ class DatabaseManager:
                     nombre TEXT NOT NULL,
                     creditos INTEGER,
                     nivel TEXT,
+                    nivel_numerico INTEGER,
                     calificacion TEXT,
                     campus TEXT,
                     periodo TEXT,
@@ -91,6 +92,7 @@ class DatabaseManager:
                     salon TEXT,
                     atributoSalon TEXT,
                     dias TEXT,
+                    PER INTEGER DEFAULT 0,
                     seccion_NRC INTEGER,
                     profesor_ids TEXT,
                     FOREIGN KEY (seccion_NRC) REFERENCES Seccion(NRC)
@@ -510,6 +512,7 @@ class DatabaseManager:
                 ses.salon,
                 ses.atributoSalon,
                 ses.dias,
+                SES.PER,
                 sec.NRC,
                 sec.indicador,
                 sec.cupo,
@@ -542,16 +545,17 @@ class DatabaseManager:
                 'salon': row[6] if row[6] else 'No especificado',
                 'atributo_salon': row[7] if row[7] else '',
                 'dias': row[8] if row[8] else '',
-                'nrc': row[9],
-                'indicador': row[10] if row[10] else '',
-                'cupo': row[11] if row[11] else 0,
-                'inscritos': row[12] if row[12] else 0,
-                'materia_codigo': row[13],
-                'materia_nombre': row[14],
-                'creditos': row[15] if row[15] else 0,
-                'departamento': row[16],
-                'profesor_nombres': row[17],
-                'profesor_apellidos': row[18]
+                'per': row[9] if row[9] is not None else 0,
+                'nrc': row[10],
+                'indicador': row[11] if row[11] else '',
+                'cupo': row[12] if row[12] else 0,
+                'inscritos': row[13] if row[13] else 0,
+                'materia_codigo': row[14],
+                'materia_nombre': row[15],
+                'creditos': row[16] if row[16] else 0,
+                'departamento': row[17],
+                'profesor_nombres': row[18],
+                'profesor_apellidos': row[19]
             })
         
         return sessions
@@ -1107,10 +1111,13 @@ class DatabaseManager:
                       calificacion: str, campus: str, periodo: str, departamento_nombre: str) -> bool:
         """Create new materia"""
         try:
+            
+            nivel_numerico = self.extract_nivel_numerico(codigo)
             self.execute_query(
-                """INSERT INTO Materia (codigo, nombre, creditos, nivel, calificacion, campus, periodo, departamento_nombre) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (codigo.strip(), nombre.strip(), creditos, nivel.strip(), 
+                """INSERT INTO Materia (codigo, nombre, creditos, nivel, nivel_numerico,
+                calificacion, campus, periodo, departamento_nombre) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (codigo.strip(), nombre.strip(), creditos, nivel.strip(), nivel_numerico,
                  calificacion.strip(), campus.strip(), periodo.strip(), departamento_nombre)
             )
             return True
@@ -1123,13 +1130,13 @@ class DatabaseManager:
     def get_materias_by_departamento(self, departamento: str) -> List[Dict]:
         """Get materias by department"""
         results = self.execute_query(
-            """SELECT m.codigo, m.nombre, m.creditos, m.nivel, m.calificacion, m.campus, m.periodo,
+            """SELECT m.codigo, m.nombre, m.creditos, m.nivel, m.nivel_numerico, m.calificacion, m.campus, m.periodo,
                       COUNT(s.NRC) as num_sections
                FROM Materia m
                LEFT JOIN Seccion s ON m.codigo = s.materia_codigo
                WHERE m.departamento_nombre = ?
-               GROUP BY m.codigo, m.nombre, m.creditos, m.nivel, m.calificacion, m.campus, m.periodo
-               ORDER BY m.codigo""",
+               GROUP BY m.codigo, m.nombre, m.creditos, m.nivel, m.nivel_numerico, m.calificacion, m.campus, m.periodo
+               ORDER BY m.nivel_numerico, m.codigo""",
             (departamento,)
         )
         return [
@@ -1138,10 +1145,11 @@ class DatabaseManager:
                 'nombre': row[1],
                 'creditos': row[2],
                 'nivel': row[3],
-                'calificacion': row[4],
-                'campus': row[5],
-                'periodo': row[6],
-                'num_sections': row[7]
+                'nivel_numerico': row[4],
+                'calificacion': row[5],
+                'campus': row[6],
+                'periodo': row[7],
+                'num_sections': row[8]
             }
             for row in results
         ]
@@ -1149,14 +1157,14 @@ class DatabaseManager:
     def get_all_materias(self) -> List[Dict]:
         """Get all materias"""
         results = self.execute_query(
-            """SELECT m.codigo, m.nombre, m.creditos, m.nivel, m.calificacion, 
+            """SELECT m.codigo, m.nombre, m.creditos, m.nivel, m.nivel_numerico, m.calificacion, 
                       m.campus, m.periodo, m.departamento_nombre,
                       COUNT(s.NRC) as num_sections
                FROM Materia m
                LEFT JOIN Seccion s ON m.codigo = s.materia_codigo
-               GROUP BY m.codigo, m.nombre, m.creditos, m.nivel, m.calificacion, 
+               GROUP BY m.codigo, m.nombre, m.creditos, m.nivel, m.nivel_numerico, m.calificacion, 
                         m.campus, m.periodo, m.departamento_nombre
-               ORDER BY m.departamento_nombre, m.codigo"""
+               ORDER BY m.departamento_nombre, m.nivel_numerico, m.codigo"""
         )
         return [
             {
@@ -1164,10 +1172,10 @@ class DatabaseManager:
                 'nombre': row[1],
                 'creditos': row[2],
                 'nivel': row[3],
-                'calificacion': row[4],
-                'campus': row[5],
-                'periodo': row[6],
-                'departamento': row[7],
+                'nivel_numerico': row[4],
+                'calificacion': row[5],
+                'campus': row[6],
+                'periodo': row[7],
                 'num_sections': row[8]
             }
             for row in results
@@ -1176,7 +1184,7 @@ class DatabaseManager:
     def get_materia_by_codigo(self, codigo: str) -> Optional[Dict]:
         """Get materia by codigo"""
         result = self.execute_query(
-            """SELECT codigo, nombre, creditos, nivel, calificacion, campus, periodo, departamento_nombre
+            """SELECT codigo, nombre, creditos, nivel, nivel_numerico, calificacion, campus, periodo, departamento_nombre
                FROM Materia WHERE codigo = ?""",
             (codigo,),
             fetch_one=True
@@ -1187,10 +1195,11 @@ class DatabaseManager:
                 'nombre': result[1],
                 'creditos': result[2],
                 'nivel': result[3],
-                'calificacion': result[4],
-                'campus': result[5],
-                'periodo': result[6],
-                'departamento': result[7]
+                'nivel_numerico': result[4],
+                'calificacion': result[5],
+                'campus': result[6],
+                'periodo': result[7],
+                'num_sections': result[8]
             }
         return None
     
@@ -1198,10 +1207,11 @@ class DatabaseManager:
                       calificacion: str, campus: str, periodo: str) -> bool:
         """Update materia information"""
         try:
+            nivel_numerico = self.extract_nivel_numerico(codigo)
             count = self.execute_query(
-                """UPDATE Materia SET nombre = ?, creditos = ?, nivel = ?, 
+                """UPDATE Materia SET nombre = ?, creditos = ?, nivel = ?, nivel_numerico = ?, 
                    calificacion = ?, campus = ?, periodo = ? WHERE codigo = ?""",
-                (nombre.strip(), creditos, nivel.strip(), calificacion.strip(), 
+                (nombre.strip(), creditos, nivel.strip(), nivel_numerico, calificacion.strip(), 
                  campus.strip(), periodo.strip(), codigo)
             )
             return count > 0
@@ -1382,6 +1392,35 @@ class DatabaseManager:
             })
         
         return materias
+    
+    def extract_nivel_numerico(self, codigo: str) -> Optional[int]:
+        """
+        Extract numeric level from materia code
+        Examples: ISIS-1221 -> 1, ISIS-3001 -> 3, MBIO-2010 -> 2
+        """
+        import re
+        
+        if not codigo:
+            return None
+        
+        # Look for pattern: letters-numbers or letters numbers
+        # Extract the first digit from the numeric part
+        patterns = [
+            r'[A-Z]+-(\d)',  # ISIS-1221 -> 1
+            r'[A-Z]+\s+(\d)',  # ISIS 1221 -> 1
+            r'[A-Z]+(\d)',     # ISIS1221 -> 1
+            r'(\d)',           # Any first digit
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, codigo.upper())
+            if match:
+                try:
+                    return int(match.group(1))
+                except (ValueError, IndexError):
+                    continue
+        
+        return None
     # ==================== SECCION OPERATIONS ====================
     
     def create_seccion(self, nrc: int, indicador: str, cupo: int, materia_codigo: str, 
@@ -1540,7 +1579,491 @@ class DatabaseManager:
         except Exception as e:
             print(f"Error deleting seccion: {e}")
             return False
+        
     
+        # Add this method to DatabaseManager class:
+    
+    def update_session_per(self, sesion_id: int, per_value: int) -> bool:
+        """Update PER value for a session"""
+        try:
+            count = self.execute_query(
+                "UPDATE Sesion SET PER = ? WHERE id = ?",
+                (per_value, sesion_id)
+            )
+            return count > 0
+        except Exception as e:
+            print(f"Error updating session PER: {e}")
+            return False
+    
+    def get_sessions_by_per(self, per_value: int) -> List[Dict]:
+        """Get all sessions with a specific PER value"""
+        results = self.execute_query(
+            """SELECT ses.id, ses.tipoHorario, ses.horaInicio, ses.horaFin, 
+                      ses.edificio, ses.salon, ses.dias, ses.PER,
+                      sec.NRC, m.codigo as materia_codigo, m.nombre as materia_nombre
+               FROM Sesion ses
+               JOIN Seccion sec ON ses.seccion_NRC = sec.NRC
+               JOIN Materia m ON sec.materia_codigo = m.codigo
+               WHERE ses.PER = ?
+               ORDER BY ses.horaInicio""",
+            (per_value,)
+        )
+        
+        sessions = []
+        for row in results:
+            sessions.append({
+                'sesion_id': row[0],
+                'tipo_horario': row[1],
+                'hora_inicio': row[2],
+                'hora_fin': row[3],
+                'edificio': row[4],
+                'salon': row[5],
+                'dias': row[6],
+                'per': row[7],
+                'nrc': row[8],
+                'materia_codigo': row[9],
+                'materia_nombre': row[10]
+            })
+        
+        return sessions
+    
+    def get_per_statistics(self) -> Dict:
+        """Get statistics about PER values"""
+        results = self.execute_query(
+            """SELECT PER, COUNT(*) as count
+               FROM Sesion
+               GROUP BY PER
+               ORDER BY PER"""
+        )
+        
+        stats = {}
+        for row in results:
+            stats[row[0]] = row[1]
+        
+        return stats
+    
+    def get_sessions_for_per_calculation(self) -> List[Dict]:
+        """Get sessions from materias with nivel_numerico 1 or 2 for PER calculation"""
+        results = self.execute_query(
+            """SELECT 
+                ses.id as sesion_id,
+                ses.tipoHorario,
+                ses.PER as current_per,
+                m.codigo as materia_codigo,
+                m.nombre as materia_nombre,
+                m.nivel_numerico,
+                sec.inscritos
+            FROM Sesion ses
+            JOIN Seccion sec ON ses.seccion_NRC = sec.NRC
+            JOIN Materia m ON sec.materia_codigo = m.codigo
+            WHERE m.nivel_numerico IN (1, 2)
+            ORDER BY m.nivel_numerico, m.codigo, sec.NRC"""
+        )
+        
+        sessions = []
+        for row in results:
+            sessions.append({
+                'sesion_id': row[0],
+                'tipo_horario': row[1] if row[1] else 'No especificado',
+                'current_per': row[2] if row[2] is not None else 0,
+                'materia_codigo': row[3],
+                'materia_nombre': row[4],
+                'nivel_numerico': row[5],
+                'inscritos': row[6] if row[6] else 0
+            })
+        
+        return sessions
+    
+    def bulk_update_per_values(self, updates: List[Dict]) -> int:
+        """Bulk update PER values for multiple sessions"""
+        updated_count = 0
+        
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            for update in updates:
+                cursor.execute(
+                    "UPDATE Sesion SET PER = ? WHERE id = ?",
+                    (update['new_per'], update['sesion_id'])
+                )
+                updated_count += 1
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            print(f"Error updating PER values: {e}")
+            if conn:
+                conn.rollback()
+                conn.close()
+        
+        return updated_count
+    
+    def get_per_statistics(self) -> Dict:
+        """Get statistics about PER values"""
+        results = self.execute_query(
+            """SELECT PER, COUNT(*) as count
+               FROM Sesion
+               WHERE PER IS NOT NULL
+               GROUP BY PER
+               ORDER BY PER"""
+        )
+        
+        stats = {}
+        for row in results:
+            stats[row[0]] = row[1]
+        
+        return stats
+    
+    def reset_per_values_for_levels(self, nivel_numerico_list: List[int]) -> int:
+        """Reset PER values to 0 for sessions of specific academic levels"""
+        try:
+            placeholders = ','.join(['?' for _ in nivel_numerico_list])
+            query = f"""
+                UPDATE Sesion 
+                SET PER = 0 
+                WHERE seccion_NRC IN (
+                    SELECT sec.NRC 
+                    FROM Seccion sec 
+                    JOIN Materia m ON sec.materia_codigo = m.codigo 
+                    WHERE m.nivel_numerico IN ({placeholders})
+                )
+            """
+            
+            count = self.execute_query(query, tuple(nivel_numerico_list))
+            return count
+        except Exception as e:
+            print(f"Error resetting PER values: {e}")
+            return 0
+        
+    def get_sessions_for_tamano_estandar_calculation(self) -> List[Dict]:
+        """Get sessions from materias with nivel_numerico 3 or 4 for Tamaño Estándar calculation"""
+        results = self.execute_query(
+            """SELECT 
+                ses.tipoHorario,
+                sec.inscritos,
+                sec.NRC,
+                m.departamento_nombre,
+                m.nivel_numerico
+            FROM Sesion ses
+            JOIN Seccion sec ON ses.seccion_NRC = sec.NRC
+            JOIN Materia m ON sec.materia_codigo = m.codigo
+            WHERE m.nivel_numerico IN (3, 4)
+            ORDER BY m.departamento_nombre, ses.tipoHorario"""
+        )
+        
+        sessions = []
+        for row in results:
+            sessions.append({
+                'tipo_horario': row[0] if row[0] else 'No especificado',
+                'inscritos': row[1] if row[1] else 0,
+                'nrc': row[2],
+                'departamento': row[3],
+                'nivel_numerico': row[4]
+            })
+        
+        return sessions
+    
+    def calculate_tamano_estandar_by_department(self) -> Dict:
+        """Calculate Tamaño Estándar for each department and course type"""
+        sessions = self.get_sessions_for_tamano_estandar_calculation()
+        
+        if not sessions:
+            return {}
+        
+        # Group by department and course type
+        department_data = {}
+        
+        for session in sessions:
+            dept = session['departamento']
+            tipo_horario = session['tipo_horario'].upper()
+            inscritos = session['inscritos']
+            nrc = session['nrc']
+            
+            # Classify course type
+            course_type = None
+            if tipo_horario in ['MAGISTRAL', 'TEORICA']:
+                course_type = 'TEORICO'
+            elif tipo_horario in ['LABORATORIO', 'TALLER Y PBL']:
+                course_type = 'PRACTICO'
+            else:
+                continue  # Skip unrecognized types
+            
+            # Initialize department structure
+            if dept not in department_data:
+                department_data[dept] = {
+                    'TEORICO': {'sections': set(), 'total_inscritos': 0},
+                    'PRACTICO': {'sections': set(), 'total_inscritos': 0}
+                }
+            
+            # Add section if not already counted
+            if nrc not in department_data[dept][course_type]['sections']:
+                department_data[dept][course_type]['sections'].add(nrc)
+                department_data[dept][course_type]['total_inscritos'] += inscritos
+        
+        # Calculate averages
+        results = {}
+        for dept, data in department_data.items():
+            results[dept] = {}
+            
+            for course_type in ['TEORICO', 'PRACTICO']:
+                sections = data[course_type]['sections']
+                total_inscritos = data[course_type]['total_inscritos']
+                
+                if len(sections) > 0:
+                    tamano_estandar = round( total_inscritos / len(sections),2)
+                    
+                    if course_type == 'TEORICO':
+                        if tamano_estandar < 10:
+                            tamano_estandar = 10
+                        elif tamano_estandar > 30:
+                            tamano_estandar = 30
+                    else:
+                        if tamano_estandar < 10:
+                            tamano_estandar = 10
+                        elif tamano_estandar > 20:
+                            tamano_estandar = 20
+                    results[dept][course_type] = {
+                        'tamano_estandar': tamano_estandar,
+                        'total_sections': len(sections),
+                        'total_inscritos': total_inscritos
+                    }
+                else:
+                    results[dept][course_type] = {
+                        'tamano_estandar': 0,
+                        'total_sections': 0,
+                        'total_inscritos': 0
+                    }
+        
+        return results
+    
+    def get_tamano_estandar_statistics(self) -> Dict:
+        """Get statistics about Tamaño Estándar calculations"""
+        data = self.calculate_tamano_estandar_by_department()
+        
+        stats = {
+            'total_departments': len(data),
+            'departments_with_teorico': 0,
+            'departments_with_practico': 0,
+            'average_teorico': 0,
+            'average_practico': 0,
+            'total_sections_teorico': 0,
+            'total_sections_practico': 0,
+            'department_details': data
+        }
+        
+        teorico_values = []
+        practico_values = []
+        
+        for dept, dept_data in data.items():
+            if dept_data['TEORICO']['total_sections'] > 0:
+                stats['departments_with_teorico'] += 1
+                stats['total_sections_teorico'] += dept_data['TEORICO']['total_sections']
+                teorico_values.append(dept_data['TEORICO']['tamano_estandar'])
+            
+            if dept_data['PRACTICO']['total_sections'] > 0:
+                stats['departments_with_practico'] += 1
+                stats['total_sections_practico'] += dept_data['PRACTICO']['total_sections']
+                practico_values.append(dept_data['PRACTICO']['tamano_estandar'])
+        
+        # Calculate overall averages
+        if teorico_values:
+            stats['average_teorico'] = round(sum(teorico_values) / len(teorico_values), 2)
+        
+        if practico_values:
+            stats['average_practico'] = round(sum(practico_values) / len(practico_values), 2)
+        
+        return stats
+    
+    
+    def get_sessions_for_per_calculation_levels_3_4(self) -> List[Dict]:
+        """Get sessions from materias with nivel_numerico 3 or 4 for PER calculation"""
+        results = self.execute_query(
+            """SELECT 
+                ses.id as sesion_id,
+                ses.tipoHorario,
+                ses.PER as current_per,
+                sec.inscritos,
+                sec.NRC,
+                m.codigo as materia_codigo,
+                m.nombre as materia_nombre,
+                m.nivel_numerico,
+                m.departamento_nombre
+            FROM Sesion ses
+            JOIN Seccion sec ON ses.seccion_NRC = sec.NRC
+            JOIN Materia m ON sec.materia_codigo = m.codigo
+            WHERE m.nivel_numerico IN (3, 4)
+            ORDER BY m.departamento_nombre, m.codigo, sec.NRC"""
+        )
+        
+        sessions = []
+        for row in results:
+            sessions.append({
+                'sesion_id': row[0],
+                'tipo_horario': row[1] if row[1] else 'No especificado',
+                'current_per': row[2] if row[2] is not None else 0,
+                'inscritos': row[3] if row[3] else 0,
+                'nrc': row[4],
+                'materia_codigo': row[5],
+                'materia_nombre': row[6],
+                'nivel_numerico': row[7],
+                'departamento': row[8]
+            })
+        
+        return sessions
+    
+    def calculate_per_for_levels_3_4_with_tamano_estandar(self) -> Dict:
+        """Calculate PER for levels 3 and 4 using Tamaño Estándar"""
+        # First, get the Tamaño Estándar for each department and course type
+        tamano_estandar_data = self.calculate_tamano_estandar_by_department()
+        
+        # Get sessions that need PER calculation
+        sessions = self.get_sessions_for_per_calculation_levels_3_4()
+        
+        if not sessions:
+            return {'updates': [], 'tamano_estandar_used': {}}
+        
+        updates = []
+        tamano_estandar_used = {}
+        
+        for session in sessions:
+            dept = session['departamento']
+            tipo_horario = session['tipo_horario'].upper()
+            inscritos = session['inscritos']  # PE (Puestos estudiante en el curso)
+            
+            # Classify course type
+            if tipo_horario in ['MAGISTRAL', 'TEORICA']:
+                course_type = 'TEORICO'
+            elif tipo_horario in ['LABORATORIO', 'TALLER Y PBL']:
+                course_type = 'PRACTICO'
+            else:
+                continue  # Skip unrecognized types
+            
+            # Get Tamaño Estándar for this department and course type
+            if dept in tamano_estandar_data and tamano_estandar_data[dept][course_type]['total_sections'] > 0:
+                tamano_estandar = tamano_estandar_data[dept][course_type]['tamano_estandar']
+            else:
+                continue  # Skip if no Tamaño Estándar available
+            
+            # Store the Tamaño Estándar used for reporting
+            if dept not in tamano_estandar_used:
+                tamano_estandar_used[dept] = {}
+            tamano_estandar_used[dept][course_type] = tamano_estandar
+            
+            # Calculate PER based on the table logic
+            new_per = self.calculate_per_from_table(course_type, tamano_estandar, inscritos)
+            
+            # Only update if PER changed
+            if new_per != session['current_per']:
+                updates.append({
+                    'sesion_id': session['sesion_id'],
+                    'new_per': new_per,
+                    'old_per': session['current_per'],
+                    'materia': session['materia_codigo'],
+                    'tipo_horario': session['tipo_horario'],
+                    'inscritos': inscritos,
+                    'departamento': dept,
+                    'tamano_estandar': tamano_estandar,
+                    'course_type': course_type
+                })
+        
+        return {
+            'updates': updates,
+            'tamano_estandar_used': tamano_estandar_used
+        }
+    
+    def calculate_per_from_table(self, course_type: str, tamano_estandar: float, pe: int) -> int:
+        """
+        Calculate PER based on the provided table logic
+        
+        Args:
+            course_type: 'TEORICO' or 'PRACTICO'
+            tamano_estandar: The calculated standard size (promedio)
+            pe: Puestos estudiante en el curso (enrolled students)
+        
+        Returns:
+            int: Calculated PER value
+        """
+        if course_type == 'TEORICO':
+            # Determine which row of the table to use based on Tamaño Estándar
+            if tamano_estandar >= 30:
+                # Row 1: Teórico with Tamaño estándar = 30
+                if 1 <= pe <= 10:
+                    return 10
+                elif 11 <= pe <= 60:
+                    return pe
+                elif 61 <= pe <= 120:
+                    return 60 + ((pe - 60) // 2)
+                elif pe >= 121:
+                    return 90
+                    
+            elif 21 <= tamano_estandar <= 29:
+                # Row 2: Teórico with Tamaño estándar = 21 a 29
+                promedio = int(tamano_estandar)  # Use the actual Tamaño Estándar as promedio
+                if 1 <= pe <= 10:
+                    return pe
+                elif 11 <= pe <= 20:
+                    return 20
+                elif 21 <= pe <= promedio:
+                    return promedio
+                elif (promedio + 1) <= pe <= 60:
+                    return pe
+                elif 61 <= pe <= 120:
+                    return 60 + ((pe - 60) // 2)
+                elif pe >= 121:
+                    return 90
+                    
+            elif 10 <= tamano_estandar <= 20:
+                # Row 3: Teórico with Tamaño estándar = 10 a 20
+                promedio = int(tamano_estandar)
+                if 1 <= pe <= 10:
+                    return pe
+                elif 11 <= pe <= promedio:
+                    return promedio
+                elif (promedio + 1) <= pe <= 60:
+                    return pe
+                elif 61 <= pe <= 120:
+                    return 60 + ((pe - 60) // 2)
+                elif pe >= 121:
+                    return 90
+                    
+            elif tamano_estandar < 10:
+                # Row 4: Teórico with Tamaño estándar = 10
+                promedio = 10  # Minimum is 10
+                if 1 <= pe <= promedio:
+                    return promedio
+                elif (promedio + 1) <= pe <= 60:
+                    return pe
+                elif 61 <= pe <= 120:
+                    return 60 + ((pe - 60) // 2)
+                elif pe >= 121:
+                    return 90
+        
+        elif course_type == 'PRACTICO':
+            if tamano_estandar >= 20:
+                # Row 1: Práctico with Tamaño estándar = 20
+                if 1 <= pe <= 6:
+                    return 6
+                elif 7 <= pe <= 25:
+                    return pe
+                elif pe >= 26:
+                    return 25
+                    
+            elif 10 <= tamano_estandar <= 19:
+                # Row 2: Práctico with Tamaño estándar = 10 a 19
+                promedio = int(tamano_estandar)
+                if 1 <= pe <= 10:
+                    return pe
+                elif 11 <= pe <= promedio:
+                    return promedio
+                elif (promedio + 1) <= pe <= 25:
+                    return pe
+                elif pe >= 26:
+                    return 25
+        
+        # Default fallback
+        return 1
     # ==================== VALIDATION METHODS ====================
     
     def nrc_exists(self, nrc: int) -> bool:
@@ -1586,45 +2109,74 @@ class DatabaseManager:
     def get_table_data(self, table_name: str, search_term: str = None, 
                       limit: int = None, offset: int = None) -> List[tuple]:
         """Get data from any table with optional search and pagination"""
+        
+        # Special handling for Sesion table to include materia information
+        if table_name == "Sesion":
+            query = """
+                SELECT 
+                    ses.id,
+                    ses.tipoHorario,
+                    ses.horaInicio,
+                    ses.horaFin,
+                    ses.duracion,
+                    ses.edificio,
+                    ses.salon,
+                    ses.atributoSalon,
+                    ses.dias,
+                    ses.PER,
+                    ses.seccion_NRC,
+                    m.codigo as materia_codigo,
+                    m.nombre as materia_nombre,
+                    m.departamento_nombre,
+                    ses.profesor_ids
+                FROM Sesion ses
+                JOIN Seccion sec ON ses.seccion_NRC = sec.NRC
+                JOIN Materia m ON sec.materia_codigo = m.codigo
+            """
+            params = []
+            
+            if search_term:
+                query += """ WHERE (
+                    ses.tipoHorario LIKE ? OR
+                    ses.edificio LIKE ? OR
+                    ses.salon LIKE ? OR
+                    m.codigo LIKE ? OR
+                    m.nombre LIKE ? OR
+                    m.departamento_nombre LIKE ? OR
+                    CAST(ses.seccion_NRC AS TEXT) LIKE ?
+                )"""
+                search_param = f"%{search_term}%"
+                params.extend([search_param] * 7)
+            
+            query += " ORDER BY ses.id"
+            
+            if limit:
+                query += " LIMIT ? OFFSET ?"
+                params.extend([limit, offset or 0])
+            
+            return self.execute_query(query, tuple(params))
+        
+        # Original logic for other tables
         query = f"SELECT * FROM {table_name}"
         params = []
         
         if search_term:
-            # Table-specific search conditions
-            if table_name == "Profesor":
-                query += " WHERE (nombres LIKE ? OR apellidos LIKE ?)"
-                params.extend([f"%{search_term}%", f"%{search_term}%"])
-            elif table_name == "Materia":
-                query += " WHERE (codigo LIKE ? OR nombre LIKE ?)"
-                params.extend([f"%{search_term}%", f"%{search_term}%"])
-            elif table_name == "Departamento":
-                query += " WHERE nombre LIKE ?"
-                params.append(f"%{search_term}%")
-            elif table_name == "Seccion":
-                query += " WHERE CAST(NRC AS TEXT) LIKE ?"
-                params.append(f"%{search_term}%")
-            elif table_name == "Sesion":
-                query += " WHERE (edificio LIKE ? OR salon LIKE ?)"
-                params.extend([f"%{search_term}%", f"%{search_term}%"])
-            elif table_name == "ProfesorDepartamento":
-                query += " WHERE (departamento_nombre LIKE ?)"
-                params.append(f"%{search_term}%")
-            elif table_name == "SeccionProfesor":
-                query += " WHERE CAST(seccion_NRC AS TEXT) LIKE ?"
-                params.append(f"%{search_term}%")
-            elif table_name == "SesionProfesor":
-                query += " WHERE CAST(sesion_id AS TEXT) LIKE ?"
-                params.append(f"%{search_term}%")
+            # Get table columns to build search condition
+            columns = self.get_table_columns(table_name)
+            if columns:
+                search_conditions = []
+                for col in columns:
+                    search_conditions.append(f"CAST({col} AS TEXT) LIKE ?")
+                query += f" WHERE ({' OR '.join(search_conditions)})"
+                params = [f"%{search_term}%"] * len(columns)
         
-        # Add ordering for consistent results - FIXED ordering for Profesor table
+        # Add ordering for consistent results
         if table_name == "Profesor":
-            query += " ORDER BY apellidos, nombres"  # Removed departamento_nombre reference
+            query += " ORDER BY apellidos, nombres"
         elif table_name == "Materia":
-            query += " ORDER BY departamento_nombre, codigo"
+            query += " ORDER BY departamento_nombre, nivel_numerico, codigo"
         elif table_name == "Seccion":
             query += " ORDER BY NRC"
-        elif table_name == "Sesion":
-            query += " ORDER BY id"
         elif table_name == "Departamento":
             query += " ORDER BY nombre"
         elif table_name == "ProfesorDepartamento":
@@ -1634,13 +2186,11 @@ class DatabaseManager:
         elif table_name == "SesionProfesor":
             query += " ORDER BY sesion_id, profesor_id"
         else:
-            # Default ordering for other tables
-            query += " ORDER BY rowid"
+            query += " ORDER BY 1"  # Order by first column
         
         if limit:
-            query += f" LIMIT {limit}"
-            if offset:
-                query += f" OFFSET {offset}"
+            query += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset or 0])
         
         return self.execute_query(query, tuple(params))
     

@@ -482,15 +482,15 @@ class CSVProcessor:
             cursor.execute('''
                 INSERT INTO Sesion 
                 (tipoHorario, horaInicio, horaFin, duracion, edificio, salon, 
-                 atributoSalon, dias, seccion_NRC, profesor_ids) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 atributoSalon, dias, PER, seccion_NRC, profesor_ids) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 self.safe_strip(row['Tipo horario (franja)']), 
                 hora_inicio, hora_fin, duracion,
                 self.safe_strip(row['Edificio']), 
                 self.safe_strip(row['Salón']), 
                 self.safe_strip(row['Descripción atributo salón']),
-                dias, nrc, json.dumps(profesor_ids)
+                dias, 0, nrc, json.dumps(profesor_ids)
             ))
             
             # Insert into SesionProfesor junction table

@@ -731,40 +731,51 @@ class DatabaseViewer:
             return 0
 
 
-    def get_total_record_count(self, search_term: str = None) -> int:
+    def get_total_record_count(self, table_name: str, search_term: str = None) -> int:
         """Get total record count for current table with optional search"""
         try:
-            query = f"SELECT COUNT(*) FROM {self.current_table}"
-            params = []
+            # Special handling for Sesion table
+            if table_name == "Sesion":
+                query = """
+                    SELECT COUNT(*) 
+                    FROM Sesion ses
+                    JOIN Seccion sec ON ses.seccion_NRC = sec.NRC
+                    JOIN Materia m ON sec.materia_codigo = m.codigo
+                """
+                params = []
+                
+                if search_term:
+                    query += """ WHERE (
+                        ses.tipoHorario LIKE ? OR
+                        ses.edificio LIKE ? OR
+                        ses.salon LIKE ? OR
+                        m.codigo LIKE ? OR
+                        m.nombre LIKE ? OR
+                        m.departamento_nombre LIKE ? OR
+                        CAST(ses.seccion_NRC AS TEXT) LIKE ?
+                    )"""
+                    search_param = f"%{search_term}%"
+                    params.extend([search_param] * 7)
+                
+                result = self.execute_query(query, tuple(params), fetch_one=True)
+                return result[0] if result else 0
             
+            # Original logic for other tables
             if search_term:
-                if self.current_table == "Profesor":
-                    query += " WHERE (nombres LIKE ? OR apellidos LIKE ?)"
-                    params.extend([f"%{search_term}%", f"%{search_term}%"])
-                elif self.current_table == "Materia":
-                    query += " WHERE (codigo LIKE ? OR nombre LIKE ?)"
-                    params.extend([f"%{search_term}%", f"%{search_term}%"])
-                elif self.current_table == "Departamento":
-                    query += " WHERE nombre LIKE ?"
-                    params.append(f"%{search_term}%")
-                elif self.current_table == "Seccion":
-                    query += " WHERE CAST(NRC AS TEXT) LIKE ?"
-                    params.append(f"%{search_term}%")
-                elif self.current_table == "ProfesorDepartamento":
-                    query += " WHERE (departamento_nombre LIKE ?)"
-                    params.append(f"%{search_term}%")
-                elif self.current_table == "SeccionProfesor":
-                    query += " WHERE CAST(seccion_NRC AS TEXT) LIKE ?"
-                    params.append(f"%{search_term}%")
-                elif self.current_table == "SesionProfesor":
-                    query += " WHERE CAST(sesion_id AS TEXT) LIKE ?"
-                    params.append(f"%{search_term}%")
+                columns = self.get_table_columns(table_name)
+                if columns:
+                    search_conditions = []
+                    for col in columns:
+                        search_conditions.append(f"CAST({col} AS TEXT) LIKE ?")
+                    query = f"SELECT COUNT(*) FROM {table_name} WHERE ({' OR '.join(search_conditions)})"
+                    params = [f"%{search_term}%"] * len(columns)
+                    result = self.execute_query(query, tuple(params), fetch_one=True)
+                    return result[0] if result else 0
             
-            result = self.db_manager.execute_query(query, tuple(params), fetch_one=True)
+            result = self.execute_query(f"SELECT COUNT(*) FROM {table_name}", fetch_one=True)
             return result[0] if result else 0
-            
         except Exception as e:
-            print(f"Error getting total count: {e}")
+            print(f"Error getting record count for {table_name}: {e}")
             return 0
     
     def update_pagination_controls(self):
@@ -881,12 +892,20 @@ class DatabaseViewer:
     def get_table_columns(self, table_name: str) -> List[str]:
         """Get column names for a table"""
         try:
-            # Get table schema
-            result = self.db_manager.execute_query(f"PRAGMA table_info({table_name})")
-            columns = [row[1] for row in result]  # row[1] is the column name
-            return columns
+            # Special handling for Sesion table with materia information
+            if table_name == "Sesion":
+                return [
+                    'id', 'tipoHorario', 'horaInicio', 'horaFin', 'duracion', 
+                    'edificio', 'salon', 'atributoSalon', 'dias', 'PER', 
+                    'seccion_NRC', 'materia_codigo', 'materia_nombre', 
+                    'departamento_nombre', 'profesor_ids'
+                ]
+            
+            # Original logic for other tables
+            result = self.execute_query(f"PRAGMA table_info({table_name})")
+            return [row[1] for row in result]  # Column name is at index 1
         except Exception as e:
-            print(f"Error getting columns for {table_name}: {e}")
+            print(f"Error getting columns for table {table_name}: {e}")
             return []
         
         
@@ -1643,7 +1662,7 @@ class ProfessorSessionsDialog:
         count_label.pack(side=tk.RIGHT)
         
         # UPDATED: Use paginated treeview instead of regular treeview
-        columns = ('NRC', 'Materia', 'Departamento', 'Horario', 'Días', 'Lugar', 'Estudiantes')
+        columns = ('NRC', 'Materia', 'Departamento', 'Horario', 'Días', 'Lugar', 'PER' ,'Estudiantes')
         column_configs = {
             'NRC': {'width': 70, 'text': 'NRC'},
             'Materia': {'width': 180, 'text': 'Materia'},
@@ -1651,6 +1670,7 @@ class ProfessorSessionsDialog:
             'Horario': {'width': 100, 'text': 'Horario'},
             'Días': {'width': 60, 'text': 'Días'},
             'Lugar': {'width': 120, 'text': 'Lugar'},
+            'PER': {'width': 50, 'text': 'PER'},
             'Estudiantes': {'width': 80, 'text': 'Estudiantes'}
         }
         
@@ -1693,6 +1713,7 @@ class ProfessorSessionsDialog:
                 horario,
                 dias,
                 lugar,
+                session['per'],
                 estudiantes
             ))
         

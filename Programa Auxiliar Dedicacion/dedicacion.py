@@ -5,6 +5,8 @@ from tkinter import filedialog, messagebox
 import csv
 import os
 
+dependencias_ingenieria = set(['MISW', 'IELE', 'MSIN', 'MBIT', 'CBPC', 'MIIA', 'IQYA', 'CBCA', 'MINE', 'IIND', 'ARTI', 'ISIS', 'IING', 'IDOC', 'MAIA', 'ICYA', 'MPET', 'DPRO', 'IBIO', 'IMEC', 'CBCO'])
+
 def process_files(input_path, output_path):
     with open(input_path, 'r') as file:
         reader = csv.DictReader(file)
@@ -15,6 +17,9 @@ def process_files(input_path, output_path):
         dicc_secc_dedicacion = {}
         periodo = ''
         for row in reader:
+            materia = row[' MATERIA    ']
+            if materia not in dependencias_ingenieria:
+                continue
             if periodo == '':
                 periodo = row['PERIODO']
             seccion = row['CRN  ']

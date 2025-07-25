@@ -364,6 +364,8 @@ class CSVProcessor:
             # Insert Materia - belongs to departamento
             materia_codigo = self.safe_strip(row['Materia'])
             if materia_codigo and materia_codigo not in inserted_materias:
+                parte_pdo = row.get('Parte pdo', None)
+                semanas = self.calculate_semanas_from_parte_pdo(parte_pdo)
                 success = self.db_manager.create_materia(
                     materia_codigo, 
                     self.safe_strip(row['Nombre largo curso']), 
@@ -372,7 +374,8 @@ class CSVProcessor:
                     self.safe_strip(row['Modo calificación']), 
                     self.safe_strip(row['Campus']), 
                     self.safe_strip(row['Periodo']), 
-                    departamento
+                    departamento,
+                    semanas
                 )
                 if success:
                     inserted_materias.add(materia_codigo)
@@ -436,6 +439,26 @@ class CSVProcessor:
         except Exception as e:
             print(f"Error processing row {row_number}: {e}")
             return False
+        
+    def calculate_semanas_from_parte_pdo(self, parte_pdo) -> int:
+        """
+        Calculate semanas (weeks) based on Parte pdo value
+        
+        Args:
+            parte_pdo: Value from "Parte pdo" column
+            
+        Returns:
+            int: 8 if parte_pdo is "8A" or "8B", otherwise 16
+        """
+        if pd.isna(parte_pdo):
+            return 16
+        
+        parte_pdo_str = str(parte_pdo).strip().upper()
+        
+        if parte_pdo_str in ['8A', '8B']:
+            return 8
+        else:
+            return 16
     
     def _update_section_professors(self, nrc: int, profesor_ids: List[int]):
         """Update professors for a section"""
@@ -457,7 +480,7 @@ class CSVProcessor:
             
             # Update JSON field
             cursor.execute(
-                "UPDATE Seccion SET profesor_ids = ? WHERE NRC = ?",
+                "UPDATE Seccion SET profesor_dedicaciones = ? WHERE NRC = ?",
                 (json.dumps(profesor_ids), nrc)
             )
             

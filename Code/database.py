@@ -1,7 +1,9 @@
 import sqlite3
 import json
+import re
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
+
 
 class DatabaseManager:
     def __init__(self, db_path='Bases de Datos/university_schedule.db'):
@@ -60,6 +62,7 @@ class DatabaseManager:
                     calificacion TEXT,
                     campus TEXT,
                     periodo TEXT,
+                    semanas INTEGER DEFAULT 16,
                     departamento_nombre TEXT,
                     FOREIGN KEY (departamento_nombre) REFERENCES Departamento(nombre)
                 )
@@ -75,7 +78,7 @@ class DatabaseManager:
                     cupoDisponible INTEGER,
                     lista_cruzada TEXT,
                     materia_codigo TEXT,
-                    profesor_ids TEXT,
+                    profesor_dedicaciones TEXT,
                     FOREIGN KEY (materia_codigo) REFERENCES Materia(codigo)
                 )
             ''')
@@ -205,7 +208,34 @@ class DatabaseManager:
                 conn.close()
             return result       
     
-    
+    def get_table_columns(self, table_name: str) -> List[str]:
+        """Get column names for a table"""
+        try:
+            # Special handling for Sesion table with materia information
+            if table_name == "Sesion":
+                return [
+                    'id', 'tipoHorario', 'horaInicio', 'horaFin', 'duracion', 
+                    'edificio', 'salon', 'atributoSalon', 'dias', 'PER', 
+                    'seccion_NRC', 'materia_codigo', 'materia_nombre', 
+                    'departamento_nombre', 'profesor_ids'
+                ]
+                
+            # Special handling for Seccion table with dedication information
+            if table_name == "Seccion":
+                return [
+                    'NRC', 'indicador', 'cupo', 'inscritos', 'cupoDisponible',
+                    'lista_cruzada', 'materia_codigo', 'profesor_dedicaciones'
+                ]
+            
+            # For other tables, get columns from database schema
+            result = self.execute_query(f"PRAGMA table_info({table_name})")
+            if result:
+                return [row[1] for row in result]  # Column name is at index 1
+            else:
+                return []
+        except Exception as e:
+            print(f"Error getting columns for table {table_name}: {e}")
+            return []
     # ==================== DEPARTAMENTO OPERATIONS ====================
     
     def create_departamento(self, nombre: str) -> bool:
@@ -400,7 +430,7 @@ class DatabaseManager:
                                      contrato: str = None) :
         """Update professor with personal data information"""
         try:
-            print(f"DEBUG: Updating professor {profesor_id} with subcategoria: {subcategoria}")  # DEBUG
+            #print(f"DEBUG: Updating professor {profesor_id} with subcategoria: {subcategoria}")  # DEBUG
             
             # Handle None subcategoria explicitly
             subcategoria_value = subcategoria if subcategoria is not None else None
@@ -423,10 +453,11 @@ class DatabaseManager:
                 SELECT subcategoria FROM Profesor WHERE id = ?
             """, (profesor_id,), fetch_one=True)
             
-            print(f"DEBUG: After update, subcategoria = {result[0] if result else 'No result'}")  # DEBUG
+            
+            #print(f"DEBUG: After update, subcategoria = {result[0] if result else 'No result'}")  # DEBUG
             return True
         except Exception as e:
-            print(f"Error updating professor personal data: {e}")
+            #print(f"Error updating professor personal data: {e}")
             return False
     
     def get_professors_without_personal_data(self):
@@ -1108,17 +1139,18 @@ class DatabaseManager:
     # ==================== MATERIA OPERATIONS ====================
     
     def create_materia(self, codigo: str, nombre: str, creditos: int, nivel: str, 
-                      calificacion: str, campus: str, periodo: str, departamento_nombre: str) -> bool:
+                      calificacion: str, campus: str, periodo: str, departamento_nombre: str,
+                      semanas: int = 16) -> bool:
         """Create new materia"""
         try:
             
             nivel_numerico = self.extract_nivel_numerico(codigo)
             self.execute_query(
                 """INSERT INTO Materia (codigo, nombre, creditos, nivel, nivel_numerico,
-                calificacion, campus, periodo, departamento_nombre) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                calificacion, campus, periodo, semanas, departamento_nombre) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (codigo.strip(), nombre.strip(), creditos, nivel.strip(), nivel_numerico,
-                 calificacion.strip(), campus.strip(), periodo.strip(), departamento_nombre)
+                 calificacion.strip(), campus.strip(), periodo.strip(), semanas, departamento_nombre)
             )
             return True
         except sqlite3.IntegrityError:
@@ -1130,12 +1162,14 @@ class DatabaseManager:
     def get_materias_by_departamento(self, departamento: str) -> List[Dict]:
         """Get materias by department"""
         results = self.execute_query(
-            """SELECT m.codigo, m.nombre, m.creditos, m.nivel, m.nivel_numerico, m.calificacion, m.campus, m.periodo,
+            """SELECT m.codigo, m.nombre, m.creditos, m.nivel, m.nivel_numerico, m.calificacion,
+                      m.campus, m.periodo, m.semanas,
                       COUNT(s.NRC) as num_sections
                FROM Materia m
                LEFT JOIN Seccion s ON m.codigo = s.materia_codigo
                WHERE m.departamento_nombre = ?
-               GROUP BY m.codigo, m.nombre, m.creditos, m.nivel, m.nivel_numerico, m.calificacion, m.campus, m.periodo
+               GROUP BY m.codigo, m.nombre, m.creditos, m.nivel, m.nivel_numerico, m.calificacion,
+                        m.campus, m.periodo, m.semanas
                ORDER BY m.nivel_numerico, m.codigo""",
             (departamento,)
         )
@@ -1149,7 +1183,8 @@ class DatabaseManager:
                 'calificacion': row[5],
                 'campus': row[6],
                 'periodo': row[7],
-                'num_sections': row[8]
+                'semanas': row[8],
+                'num_sections': row[9]
             }
             for row in results
         ]
@@ -1158,12 +1193,12 @@ class DatabaseManager:
         """Get all materias"""
         results = self.execute_query(
             """SELECT m.codigo, m.nombre, m.creditos, m.nivel, m.nivel_numerico, m.calificacion, 
-                      m.campus, m.periodo, m.departamento_nombre,
+                      m.campus, m.periodo, m.semanas, m.departamento_nombre,
                       COUNT(s.NRC) as num_sections
                FROM Materia m
                LEFT JOIN Seccion s ON m.codigo = s.materia_codigo
                GROUP BY m.codigo, m.nombre, m.creditos, m.nivel, m.nivel_numerico, m.calificacion, 
-                        m.campus, m.periodo, m.departamento_nombre
+                        m.campus, m.periodo, m.semanas, m.departamento_nombre
                ORDER BY m.departamento_nombre, m.nivel_numerico, m.codigo"""
         )
         return [
@@ -1176,7 +1211,9 @@ class DatabaseManager:
                 'calificacion': row[5],
                 'campus': row[6],
                 'periodo': row[7],
-                'num_sections': row[8]
+                'semanas': row[9],
+                'departamento_nombre': row[9],
+                'num_sections':row[10]
             }
             for row in results
         ]
@@ -1184,7 +1221,8 @@ class DatabaseManager:
     def get_materia_by_codigo(self, codigo: str) -> Optional[Dict]:
         """Get materia by codigo"""
         result = self.execute_query(
-            """SELECT codigo, nombre, creditos, nivel, nivel_numerico, calificacion, campus, periodo, departamento_nombre
+            """SELECT codigo, nombre, creditos, nivel, nivel_numerico, calificacion, 
+                      campus, periodo, semanas, departamento_nombre
                FROM Materia WHERE codigo = ?""",
             (codigo,),
             fetch_one=True
@@ -1199,53 +1237,29 @@ class DatabaseManager:
                 'calificacion': result[5],
                 'campus': result[6],
                 'periodo': result[7],
-                'num_sections': result[8]
+                'semanas': result[8],
+                'num_sections': result[9]
             }
         return None
     
     def update_materia(self, codigo: str, nombre: str, creditos: int, nivel: str, 
-                      calificacion: str, campus: str, periodo: str) -> bool:
+                      calificacion: str, campus: str, periodo: str, semanas:int = 16) -> bool:
         """Update materia information"""
         try:
             nivel_numerico = self.extract_nivel_numerico(codigo)
             count = self.execute_query(
                 """UPDATE Materia SET nombre = ?, creditos = ?, nivel = ?, nivel_numerico = ?, 
-                   calificacion = ?, campus = ?, periodo = ? WHERE codigo = ?""",
+                   calificacion = ?, campus = ?, periodo = ?, semanas = ?, WHERE codigo = ?""",
                 (nombre.strip(), creditos, nivel.strip(), nivel_numerico, calificacion.strip(), 
-                 campus.strip(), periodo.strip(), codigo)
+                 campus.strip(), periodo.strip(), semanas, codigo)
             )
             return count > 0
         except Exception as e:
             print(f"Error updating materia: {e}")
             return False
     
-    def delete_materia(self, codigo: str) -> bool:
-        """Delete materia and all related data"""
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
-            # Check if materia has sections
-            cursor.execute("SELECT COUNT(*) FROM Seccion WHERE materia_codigo = ?", (codigo,))
-            section_count = cursor.fetchone()[0]
-            
-            if section_count > 0:
-                conn.close()
-                return False  # Cannot delete, has sections
-            
-            cursor.execute("DELETE FROM Materia WHERE codigo = ?", (codigo,))
-            conn.commit()
-            conn.close()
-            return True
-        except Exception as e:
-            print(f"Error deleting materia: {e}")
-            return False
-    
-    
-        # Add these methods to the DatabaseManager class:
-    
     def get_materia_sections(self, materia_codigo: str) -> List[Dict]:
-        """Get all sections for a specific materia with detailed information"""
+        """Get all sections for a specific materia with detailed information - UPDATED to include semanas"""
         results = self.execute_query(
             """SELECT 
                 sec.NRC,
@@ -1260,6 +1274,7 @@ class DatabaseManager:
                 m.calificacion,
                 m.campus,
                 m.periodo,
+                m.semanas,
                 m.departamento_nombre,
                 COUNT(ses.id) as num_sessions,
                 GROUP_CONCAT(DISTINCT p.nombres || ' ' || p.apellidos) as profesores
@@ -1271,7 +1286,7 @@ class DatabaseManager:
             WHERE sec.materia_codigo = ?
             GROUP BY sec.NRC, sec.indicador, sec.cupo, sec.inscritos, sec.cupoDisponible,
                      m.codigo, m.nombre, m.creditos, m.nivel, m.calificacion, 
-                     m.campus, m.periodo, m.departamento_nombre
+                     m.campus, m.periodo, m.semanas, m.departamento_nombre
             ORDER BY sec.NRC""",
             (materia_codigo,)
         )
@@ -1291,9 +1306,10 @@ class DatabaseManager:
                 'calificacion': row[9] if row[9] else '',
                 'campus': row[10] if row[10] else '',
                 'periodo': row[11] if row[11] else '',
-                'departamento': row[12],
-                'num_sessions': row[13] if row[13] else 0,
-                'profesores': row[14] if row[14] else 'Sin asignar'
+                'semanas': row[12] if row[12] else 16,  # NEW: Include semanas
+                'departamento': row[13],
+                'num_sessions': row[14] if row[14] else 0,
+                'profesores': row[15] if row[15] else 'Sin asignar'
             })
         
         return sections
@@ -1440,14 +1456,18 @@ class DatabaseManager:
                 profesor_ids = []
             
             cupo_disponible = cupo  # Initially all spots are available
-            profesor_ids_json = json.dumps(profesor_ids)
+            profesor_dedicaciones = {}
+            for profesor_id in profesor_ids:
+                profesor_dedicaciones[str(profesor_id)]= 0
+            
+            profesor_dedicaciones_json = json.dumps(profesor_dedicaciones)
             
             cursor.execute(
                 """INSERT INTO Seccion (NRC, indicador, cupo, inscritos, cupoDisponible,
-                                        lista_cruzada, materia_codigo, profesor_ids)
+                                        lista_cruzada, materia_codigo, profesor_dedicaciones)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (nrc, indicador.strip(), cupo, 0, cupo_disponible,
-                 lista_cruzada.strip() if lista_cruzada else None, materia_codigo, profesor_ids_json)
+                 lista_cruzada.strip() if lista_cruzada else None, materia_codigo, profesor_dedicaciones_json)
             )
             
             # Insert into SeccionProfesor junction table
@@ -1556,6 +1576,306 @@ class DatabaseManager:
         except Exception as e:
             print(f"Error updating seccion: {e}")
             return False
+        
+    def _update_section_professors(self, nrc: int, profesor_ids: List[int]):
+        """Update professors for a section"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # Get current professors
+            cursor.execute("SELECT profesor_id FROM SeccionProfesor WHERE seccion_NRC = ?", (nrc,))
+            current_profs = {row[0] for row in cursor.fetchall()}
+            
+            # Add new professors
+            for prof_id in profesor_ids:
+                if prof_id not in current_profs:
+                    cursor.execute(
+                        "INSERT INTO SeccionProfesor (seccion_NRC, profesor_id) VALUES (?, ?)",
+                        (nrc, prof_id)
+                    )
+            
+            # UPDATED: Update profesor_dedicaciones JSON field (keep existing dedicaciones, add new professors with 0%)
+            cursor.execute("SELECT profesor_dedicaciones FROM Seccion WHERE NRC = ?", (nrc,))
+            current_dedicaciones_json = cursor.fetchone()[0]
+            
+            if current_dedicaciones_json:
+                current_dedicaciones = json.loads(current_dedicaciones_json)
+            else:
+                current_dedicaciones = {}
+            
+            # Add new professors with 0% dedication (don't overwrite existing)
+            for prof_id in profesor_ids:
+                if str(prof_id) not in current_dedicaciones:
+                    current_dedicaciones[str(prof_id)] = 0
+            
+            # Update section with new dedicaciones
+            cursor.execute(
+                "UPDATE Seccion SET profesor_dedicaciones = ? WHERE NRC = ?",
+                (json.dumps(current_dedicaciones), nrc)
+            )
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            print(f"Error updating section professors: {e}")
+            
+    def get_seccion_profesor_dedicaciones(self, nrc: int) -> Dict[int, int]:
+        """Get professor dedicaciones for a section"""
+        try:
+            result = self.execute_query(
+                "SELECT profesor_dedicaciones FROM Seccion WHERE NRC = ?",
+                (nrc,),
+                fetch_one=True
+            )
+            
+            if result and result[0]:
+                dedicaciones_json = json.loads(result[0])
+                # Convert string keys back to integers
+                return {int(prof_id): dedicacion for prof_id, dedicacion in dedicaciones_json.items()}
+            return {}
+        except Exception as e:
+            print(f"Error getting section dedicaciones: {e}")
+            return {}
+    
+    
+    def get_profesor_dedicaciones_by_seccion(self, profesor_id: int) -> List[Dict]:
+        """Get all sections and dedicaciones for a specific professor"""
+        try:
+            results = self.execute_query(
+                """SELECT sec.NRC, sec.profesor_dedicaciones, m.codigo, m.nombre
+                   FROM Seccion sec
+                   JOIN SeccionProfesor sp ON sec.NRC = sp.seccion_NRC
+                   JOIN Materia m ON sec.materia_codigo = m.codigo
+                   WHERE sp.profesor_id = ?
+                   ORDER BY m.codigo""",
+                (profesor_id,)
+            )
+            
+            dedicaciones = []
+            for row in results:
+                nrc = row[0]
+                dedicaciones_json = row[1]
+                materia_codigo = row[2]
+                materia_nombre = row[3]
+                
+                # Parse dedicaciones JSON
+                if dedicaciones_json:
+                    dedicaciones_dict = json.loads(dedicaciones_json)
+                    dedicacion = dedicaciones_dict.get(str(profesor_id), 0)
+                else:
+                    dedicacion = 0
+                
+                dedicaciones.append({
+                    'nrc': nrc,
+                    'materia_codigo': materia_codigo,
+                    'materia_nombre': materia_nombre,
+                    'dedicacion': dedicacion
+                })
+            
+            return dedicaciones
+        except Exception as e:
+            print(f"Error getting profesor dedicaciones: {e}")
+            return []
+        
+    def get_sections_with_dedication_info(self) -> List[Dict]:
+        """Get all sections with current dedication information"""
+        results = self.execute_query(
+            """SELECT 
+                sec.NRC,
+                sec.indicador,
+                sec.cupo,
+                sec.inscritos,
+                sec.profesor_dedicaciones,
+                m.codigo as materia_codigo,
+                m.nombre as materia_nombre,
+                m.departamento_nombre
+            FROM Seccion sec
+            JOIN Materia m ON sec.materia_codigo = m.codigo
+            ORDER BY m.departamento_nombre, m.codigo, sec.NRC"""
+        )
+        
+        sections = []
+        for row in results:
+            # Parse dedication JSON
+            dedicaciones_json = row[4]
+            dedicaciones = {}
+            total_dedicacion = 0
+            
+            if dedicaciones_json:
+                try:
+                    dedicaciones_dict = json.loads(dedicaciones_json)
+                    # Convert back to int keys and calculate total
+                    for prof_id_str, dedicacion in dedicaciones_dict.items():
+                        prof_id = int(prof_id_str)
+                        dedicaciones[prof_id] = dedicacion
+                        total_dedicacion += dedicacion
+                except:
+                    pass
+            
+            sections.append({
+                'nrc': row[0],
+                'indicador': row[1],
+                'cupo': row[2],
+                'inscritos': row[3],
+                'dedicaciones': dedicaciones,
+                'total_dedicacion': total_dedicacion,
+                'materia_codigo': row[5],
+                'materia_nombre': row[6],
+                'departamento': row[7]
+            })
+        
+        return sections
+    
+    def get_professor_dedication_summary(self) -> List[Dict]:
+        """Get summary of professor dedication across all sections"""
+        results = self.execute_query(
+            """SELECT 
+                p.id,
+                p.nombres,
+                p.apellidos,
+                COUNT(DISTINCT sp.seccion_NRC) as total_sections
+            FROM Profesor p
+            LEFT JOIN SeccionProfesor sp ON p.id = sp.profesor_id
+            GROUP BY p.id, p.nombres, p.apellidos
+            ORDER BY p.apellidos, p.nombres"""
+        )
+        
+        professors = []
+        for row in results:
+            profesor_id = row[0]
+            
+            # Get dedication details for this professor
+            dedicaciones = self.get_profesor_dedicaciones_by_seccion(profesor_id)
+            total_dedicacion = sum(d['dedicacion'] for d in dedicaciones)
+            
+            professors.append({
+                'id': profesor_id,
+                'nombres': row[1],
+                'apellidos': row[2],
+                'full_name': f"{row[1]} {row[2]}",
+                'total_sections': row[3],
+                'total_dedicacion': total_dedicacion,
+                'sections_with_dedicacion': len([d for d in dedicaciones if d['dedicacion'] > 0]),
+                'dedicaciones': dedicaciones
+            })
+        
+        return professors
+    
+    def get_section_professors(self, nrc: int) -> List[Dict]:
+        """Get all professors assigned to a specific section"""
+        try:
+            query = """
+                SELECT p.id, p.nombres, p.apellidos, p.tipo
+                FROM Profesor p
+                JOIN SeccionProfesor sp ON p.id = sp.profesor_id
+                WHERE sp.seccion_NRC = ?
+                ORDER BY p.apellidos, p.nombres
+            """
+            results = self.execute_query(query, (nrc,))
+            
+            professors = []
+            for row in results:
+                professors.append({
+                    'id': row[0],
+                    'nombres': row[1],
+                    'apellidos': row[2],
+                    'tipo': row[3],
+                    'full_name': f"{row[1]} {row[2]}"
+                })
+            
+            return professors
+            
+        except Exception as e:
+            print(f"Error getting section professors: {e}")
+            return []
+    
+    def get_seccion_profesor_dedicaciones(self, nrc: int) -> Dict[int, int]:
+        """Get current professor dedicaciones for a section - FIXED to handle both list and dict JSON"""
+        try:
+            result = self.execute_query(
+                "SELECT profesor_dedicaciones FROM Seccion WHERE NRC = ?",
+                (nrc,),
+                fetch_one=True
+            )
+            
+            if not result or not result[0]:
+                return {}
+            
+            dedicaciones_json = result[0]
+            
+            # Handle different data types
+            if isinstance(dedicaciones_json, str):
+                try:
+                    dedicaciones_data = json.loads(dedicaciones_json)
+                except json.JSONDecodeError:
+                    print(f"Invalid JSON in profesor_dedicaciones for NRC {nrc}")
+                    return {}
+            else:
+                dedicaciones_data = dedicaciones_json
+            
+            # FIXED: Handle both list and dict formats
+            if isinstance(dedicaciones_data, list):
+                # If it's a list, it might be empty or contain professor IDs
+                # Convert to dict format with 0% dedication
+                if not dedicaciones_data:
+                    return {}
+                
+                # If list contains professor IDs, convert to dict
+                result_dict = {}
+                for item in dedicaciones_data:
+                    if isinstance(item, (int, str)):
+                        try:
+                            prof_id = int(item)
+                            result_dict[prof_id] = 0  # Default to 0% dedication
+                        except (ValueError, TypeError):
+                            continue
+                return result_dict
+                
+            elif isinstance(dedicaciones_data, dict):
+                # Handle normal dict format
+                result_dict = {}
+                for key, value in dedicaciones_data.items():
+                    try:
+                        prof_id = int(key)
+                        dedicacion = int(value) if value is not None else 0
+                        result_dict[prof_id] = dedicacion
+                    except (ValueError, TypeError):
+                        print(f"Invalid profesor_dedicaciones data: {key}={value}")
+                        continue
+                return result_dict
+            
+            else:
+                print(f"Unexpected data type for profesor_dedicaciones: {type(dedicaciones_data)}")
+                return {}
+                
+        except Exception as e:
+            print(f"Error getting section dedicaciones: {e}")
+            return {}
+    
+    def update_seccion_profesor_dedicaciones(self, nrc: int, dedicaciones: Dict[int, int]) -> bool:
+        """Update professor dedicaciones for a section - ENSURES dict format"""
+        try:
+            # FIXED: Always ensure we're storing a dict format, not a list
+            if not isinstance(dedicaciones, dict):
+                print(f"Warning: Expected dict for dedicaciones, got {type(dedicaciones)}")
+                return False
+            
+            # Convert dedicaciones dict to JSON string with string keys
+            dedicaciones_json = json.dumps({str(k): v for k, v in dedicaciones.items()})
+            
+            result = self.execute_query(
+                "UPDATE Seccion SET profesor_dedicaciones = ? WHERE NRC = ?",
+                (dedicaciones_json, nrc),
+                fetch_one=False
+            )
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error updating section dedicaciones: {e}")
+            return False
     
     def delete_seccion(self, nrc: int) -> bool:
         """Delete section and all related data"""
@@ -1643,7 +1963,7 @@ class DatabaseManager:
         return stats
     
     def get_sessions_for_per_calculation(self) -> List[Dict]:
-        """Get sessions from materias with nivel_numerico 1 or 2 for PER calculation"""
+        """Get sessions from materias with nivel_numerico 1 or 2 for PER calculation - UPDATED with lista_cruzada grouping"""
         results = self.execute_query(
             """SELECT 
                 ses.id as sesion_id,
@@ -1652,7 +1972,9 @@ class DatabaseManager:
                 m.codigo as materia_codigo,
                 m.nombre as materia_nombre,
                 m.nivel_numerico,
-                sec.inscritos
+                sec.inscritos,
+                sec.NRC,
+                sec.lista_cruzada
             FROM Sesion ses
             JOIN Seccion sec ON ses.seccion_NRC = sec.NRC
             JOIN Materia m ON sec.materia_codigo = m.codigo
@@ -1660,19 +1982,65 @@ class DatabaseManager:
             ORDER BY m.nivel_numerico, m.codigo, sec.NRC"""
         )
         
-        sessions = []
+        # Group sessions by lista_cruzada for combined enrollment calculation
+        grouped_sessions = {}
+        individual_sessions = []
+        
         for row in results:
-            sessions.append({
+            session_data = {
                 'sesion_id': row[0],
                 'tipo_horario': row[1] if row[1] else 'No especificado',
                 'current_per': row[2] if row[2] is not None else 0,
                 'materia_codigo': row[3],
                 'materia_nombre': row[4],
                 'nivel_numerico': row[5],
-                'inscritos': row[6] if row[6] else 0
-            })
+                'inscritos': row[6] if row[6] else 0,
+                'nrc': row[7],
+                'lista_cruzada': row[8]
+            }
+            
+            lista_cruzada = row[8]
+            
+            # SPECIAL CASE: ISIS_001 should be calculated individually
+            if lista_cruzada == 'ISIS_001' or not lista_cruzada:
+                # No grouping - individual calculation
+                individual_sessions.append(session_data)
+            else:
+                # Group by lista_cruzada
+                if lista_cruzada not in grouped_sessions:
+                    grouped_sessions[lista_cruzada] = {
+                        'sessions': [],
+                        'total_inscritos': 0,
+                        'nrcs': set()
+                    }
+                
+                grouped_sessions[lista_cruzada]['sessions'].append(session_data)
+                
+                # Only count enrollment once per NRC to avoid double counting
+                if row[7] not in grouped_sessions[lista_cruzada]['nrcs']:
+                    grouped_sessions[lista_cruzada]['total_inscritos'] += session_data['inscritos']
+                    grouped_sessions[lista_cruzada]['nrcs'].add(row[7])
         
-        return sessions
+        # Convert grouped sessions back to individual session format with combined enrollment
+        final_sessions = []
+        
+        # Add individual sessions (no grouping)
+        final_sessions.extend(individual_sessions)
+        
+        # Add grouped sessions with combined enrollment
+        for lista_cruzada, group_data in grouped_sessions.items():
+            combined_inscritos = group_data['total_inscritos']
+            
+            for session in group_data['sessions']:
+                # Update session with combined enrollment for PER calculation
+                session_copy = session.copy()
+                session_copy['original_inscritos'] = session['inscritos']  # Keep original for reference
+                session_copy['inscritos'] = combined_inscritos  # Use combined for PER calculation
+                session_copy['grouped_with'] = lista_cruzada
+                session_copy['group_size'] = len(group_data['sessions'])
+                final_sessions.append(session_copy)
+        
+        return final_sessions
     
     def bulk_update_per_values(self, updates: List[Dict]) -> int:
         """Bulk update PER values for multiple sessions"""
@@ -1738,14 +2106,15 @@ class DatabaseManager:
             return 0
         
     def get_sessions_for_tamano_estandar_calculation(self) -> List[Dict]:
-        """Get sessions from materias with nivel_numerico 3 or 4 for Tamaño Estándar calculation"""
+        """Get sessions from materias with nivel_numerico 3 or 4 for Tamaño Estándar calculation - UPDATED with lista_cruzada grouping"""
         results = self.execute_query(
             """SELECT 
                 ses.tipoHorario,
                 sec.inscritos,
                 sec.NRC,
                 m.departamento_nombre,
-                m.nivel_numerico
+                m.nivel_numerico,
+                sec.lista_cruzada
             FROM Sesion ses
             JOIN Seccion sec ON ses.seccion_NRC = sec.NRC
             JOIN Materia m ON sec.materia_codigo = m.codigo
@@ -1753,17 +2122,55 @@ class DatabaseManager:
             ORDER BY m.departamento_nombre, ses.tipoHorario"""
         )
         
-        sessions = []
-        for row in results:
-            sessions.append({
-                'tipo_horario': row[0] if row[0] else 'No especificado',
-                'inscritos': row[1] if row[1] else 0,
-                'nrc': row[2],
-                'departamento': row[3],
-                'nivel_numerico': row[4]
-            })
+        # Group by lista_cruzada to avoid double counting enrollment
+        processed_grupos = set()
+        final_sessions = []
         
-        return sessions
+        for row in results:
+            tipo_horario = row[0] if row[0] else 'No especificado'
+            inscritos = row[1] if row[1] else 0
+            nrc = row[2]
+            departamento = row[3]
+            nivel_numerico = row[4]
+            lista_cruzada = row[5]
+            
+            session_data = {
+                'tipo_horario': tipo_horario,
+                'inscritos': inscritos,
+                'nrc': nrc,
+                'departamento': departamento,
+                'nivel_numerico': nivel_numerico,
+                'lista_cruzada': lista_cruzada
+            }
+            
+            # SPECIAL CASE: ISIS_001 should be calculated individually
+            if lista_cruzada == 'ISIS_001' or not lista_cruzada:
+                # No grouping - individual calculation
+                final_sessions.append(session_data)
+            else:
+                # For grouped sections, only count once per lista_cruzada group
+                if lista_cruzada not in processed_grupos:
+                    # Get all sections in this lista_cruzada group
+                    group_results = self.execute_query(
+                        """SELECT sec.inscritos, sec.NRC
+                           FROM Seccion sec
+                           JOIN Materia m ON sec.materia_codigo = m.codigo
+                           WHERE sec.lista_cruzada = ? AND m.nivel_numerico IN (3, 4)""",
+                        (lista_cruzada,)
+                    )
+                    
+                    # Calculate combined enrollment for the group
+                    total_inscritos = sum(row[0] if row[0] else 0 for row in group_results)
+                    
+                    # Add one representative session with combined enrollment
+                    session_data['inscritos'] = total_inscritos
+                    session_data['is_grouped'] = True
+                    session_data['group_size'] = len(group_results)
+                    final_sessions.append(session_data)
+                    
+                    processed_grupos.add(lista_cruzada)
+        
+        return final_sessions
     
     def calculate_tamano_estandar_by_department(self) -> Dict:
         """Calculate Tamaño Estándar for each department and course type"""
@@ -1878,7 +2285,7 @@ class DatabaseManager:
     
     
     def get_sessions_for_per_calculation_levels_3_4(self) -> List[Dict]:
-        """Get sessions from materias with nivel_numerico 3 or 4 for PER calculation"""
+        """Get sessions from materias with nivel_numerico 3 or 4 for PER calculation - UPDATED with lista_cruzada grouping"""
         results = self.execute_query(
             """SELECT 
                 ses.id as sesion_id,
@@ -1889,7 +2296,8 @@ class DatabaseManager:
                 m.codigo as materia_codigo,
                 m.nombre as materia_nombre,
                 m.nivel_numerico,
-                m.departamento_nombre
+                m.departamento_nombre,
+                sec.lista_cruzada
             FROM Sesion ses
             JOIN Seccion sec ON ses.seccion_NRC = sec.NRC
             JOIN Materia m ON sec.materia_codigo = m.codigo
@@ -1897,9 +2305,12 @@ class DatabaseManager:
             ORDER BY m.departamento_nombre, m.codigo, sec.NRC"""
         )
         
-        sessions = []
+        # Group sessions by lista_cruzada for combined enrollment calculation
+        grouped_sessions = {}
+        individual_sessions = []
+        
         for row in results:
-            sessions.append({
+            session_data = {
                 'sesion_id': row[0],
                 'tipo_horario': row[1] if row[1] else 'No especificado',
                 'current_per': row[2] if row[2] is not None else 0,
@@ -1908,10 +2319,52 @@ class DatabaseManager:
                 'materia_codigo': row[5],
                 'materia_nombre': row[6],
                 'nivel_numerico': row[7],
-                'departamento': row[8]
-            })
+                'departamento': row[8],
+                'lista_cruzada': row[9]
+            }
+            
+            lista_cruzada = row[9]
+            
+            # SPECIAL CASE: ISIS_001 should be calculated individually
+            if lista_cruzada == 'ISIS_001' or not lista_cruzada:
+                # No grouping - individual calculation
+                individual_sessions.append(session_data)
+            else:
+                # Group by lista_cruzada
+                if lista_cruzada not in grouped_sessions:
+                    grouped_sessions[lista_cruzada] = {
+                        'sessions': [],
+                        'total_inscritos': 0,
+                        'nrcs': set()
+                    }
+                
+                grouped_sessions[lista_cruzada]['sessions'].append(session_data)
+                
+                # Only count enrollment once per NRC to avoid double counting
+                if row[4] not in grouped_sessions[lista_cruzada]['nrcs']:
+                    grouped_sessions[lista_cruzada]['total_inscritos'] += session_data['inscritos']
+                    grouped_sessions[lista_cruzada]['nrcs'].add(row[4])
         
-        return sessions
+        # Convert grouped sessions back to individual session format with combined enrollment
+        final_sessions = []
+        
+        # Add individual sessions (no grouping)
+        final_sessions.extend(individual_sessions)
+        
+        # Add grouped sessions with combined enrollment
+        for lista_cruzada, group_data in grouped_sessions.items():
+            combined_inscritos = group_data['total_inscritos']
+            
+            for session in group_data['sessions']:
+                # Update session with combined enrollment for PER calculation
+                session_copy = session.copy()
+                session_copy['original_inscritos'] = session['inscritos']  # Keep original for reference
+                session_copy['inscritos'] = combined_inscritos  # Use combined for PER calculation
+                session_copy['grouped_with'] = lista_cruzada
+                session_copy['group_size'] = len(group_data['sessions'])
+                final_sessions.append(session_copy)
+        
+        return final_sessions
     
     def calculate_per_for_levels_3_4_with_tamano_estandar(self) -> Dict:
         """Calculate PER for levels 3 and 4 using Tamaño Estándar"""
@@ -2245,3 +2698,538 @@ class DatabaseManager:
                 'full_name': f"{result[1]} {result[2]}"
             }
         return None
+    
+    def create_dedication_processor(self):
+        """Create a new dedication data processor instance"""
+        try:
+            from dedication_data_processor import DedicationDataProcessor
+            return DedicationDataProcessor(self)
+        except ImportError as e:
+            print(f"Error importing DedicationDataProcessor: {e}")
+            return None
+        except Exception as e:
+            print(f"Error creating DedicationDataProcessor: {e}")
+            return None
+        
+        
+        # ==================== HORAS PROMEDIO POR SECCION OPERATIONS ====================
+    
+    def calculate_horas_promedio_and_tamano_estandar_unified(self) -> Dict:
+        """
+        UNIFIED calculation for both Horas Promedio and Secciones a Tamaño Estándar
+        Enhanced structure: {dependencia: {nivel: {tipo_profesor: {tipo_sesion: {nrc: {profesor_id: {horas: float, per: float}}}}}}}
+        """
+        try:
+            # Get all sessions with required data
+            query = """
+                SELECT 
+                    ses.id as sesion_id,
+                    ses.tipoHorario,
+                    ses.duracion,
+                    ses.dias,
+                    ses.PER as session_per,
+                    ses.seccion_NRC,
+                    sec.profesor_dedicaciones,
+                    m.creditos,
+                    m.codigo as materia_codigo,
+                    m.semanas,
+                    m.nivel_numerico,
+                    m.departamento_nombre,
+                    p.id as profesor_id,
+                    p.dependencia,
+                    p.tipo as profesor_tipo
+                FROM Sesion ses
+                JOIN Seccion sec ON ses.seccion_NRC = sec.NRC
+                JOIN Materia m ON sec.materia_codigo = m.codigo
+                JOIN SesionProfesor sp ON ses.id = sp.sesion_id
+                JOIN Profesor p ON sp.profesor_id = p.id
+                WHERE m.nivel_numerico IN (1, 2, 3, 4)
+                AND UPPER(ses.tipoHorario) IN ('MAGISTRAL', 'TEORICA', 'LABORATORIO', 'TALLER Y PBL')
+                ORDER BY ses.seccion_NRC, ses.id
+            """
+            
+            results = self.execute_query(query)
+            
+            if not results:
+                return {}
+            
+            # Initialize the nested dictionary structure
+            unified_estructura = {}
+            
+            # Track processed professor-section combinations to avoid PER duplication
+            
+            print(f"Processing {len(results)} session-professor combinations...")
+            
+            # Process each session record
+            for row in results:
+                sesion_id = row[0]
+                tipo_horario = row[1] if row[1] else 'No especificado'
+                duracion = row[2] if row[2] else 0
+                dias = row[3] if row[3] else ''
+                session_per = row[4] if row[4] else 0
+                seccion_nrc = row[5]
+                profesor_dedicaciones_json = row[6]
+                creditos = row[7] if row[7] else 0
+                materia_codigo = row[8]
+                semanas = row[9] if row[9] else 16
+                nivel_numerico = row[10] if row[10] else 1
+                departamento_nombre = row[11]
+                profesor_id = row[12]
+                profesor_dependencia = row[13]
+                profesor_tipo = row[14]
+                
+                
+                if profesor_dependencia: # Step 1: Determine Professor's Dependencia using simple mapping
+                    if ('DEPARTAMENTO' in profesor_dependencia.upper()):
+                        dependencia_key = self.get_dependency_for_department(departamento_nombre, profesor_dependencia)
+                    else:
+                        dependencia_key = self.get_dependency_for_department(departamento_nombre, None)
+                else: 
+                    dependencia_key = self.get_dependency_for_department(departamento_nombre, None)
+                
+                # Step 2: Determine Academic Level Category
+                if nivel_numerico in [1, 2]:
+                    nivel_categoria = "Basico e intermedio"
+                elif nivel_numerico in [3, 4]:
+                    nivel_categoria = "Avanzado"
+                else:
+                    continue  # Skip higher levels as requested
+                
+                # Step 3: Classify session type
+                session_classification = self.classify_session_type(tipo_horario)
+                if session_classification is None:
+                    continue  # Skip sessions that are not considered
+                
+                # Step 4: Get Dedication Percentage
+                dedication_percentage = 0
+                if profesor_dedicaciones_json:
+                    try:
+                        if isinstance(profesor_dedicaciones_json, str):
+                            dedicaciones = json.loads(profesor_dedicaciones_json)
+                        else:
+                            dedicaciones = profesor_dedicaciones_json
+                        
+                        if isinstance(dedicaciones, dict):
+                            dedication_percentage = dedicaciones.get(str(profesor_id), 0)
+                    except Exception as e:
+                        print(f"Error parsing dedicaciones for section {seccion_nrc}: {e}")
+                        dedication_percentage = 0
+                
+                # Skip if no dedication (professor gets 0 hours and PER)
+                if dedication_percentage == 0:
+                    continue
+                
+                # Step 5: Normalize Professor Type
+                tipo_profesor_normalizado = self.normalize_profesor_tipo_for_calculation(profesor_tipo)
+                
+                if tipo_profesor_normalizado == 'AGD' or tipo_profesor_normalizado == 'AGM':
+                    continue
+                
+                # Step 6: Calculate Base Hours
+                base_hours = self.calculate_horas_reconocidas_formula(
+                    duracion=duracion,
+                    dias=dias,
+                    creditos=creditos,
+                    semanas=semanas,
+                    tipo_horario=tipo_horario,
+                    tipo_profesor=tipo_profesor_normalizado,
+                    materia_codigo=materia_codigo
+                )
+                
+                # Step 7: Apply Dedication Percentage to Hours
+                final_hours = base_hours * (dedication_percentage / 100.0)
+                
+                # Step 8: Calculate PER with Dedication (only once per professor-section)
+                final_per = session_per * (dedication_percentage / 100.0)
+
+                
+                # Step 9: Build/Update the Enhanced Nested Structure
+                # Ensure structure exists
+                if dependencia_key not in unified_estructura:
+                    unified_estructura[dependencia_key] = {}
+                
+                if nivel_categoria not in unified_estructura[dependencia_key]:
+                    unified_estructura[dependencia_key][nivel_categoria] = {}
+                
+                if tipo_profesor_normalizado not in unified_estructura[dependencia_key][nivel_categoria]:
+                    unified_estructura[dependencia_key][nivel_categoria][tipo_profesor_normalizado] = {}
+                
+                if session_classification not in unified_estructura[dependencia_key][nivel_categoria][tipo_profesor_normalizado]:
+                    unified_estructura[dependencia_key][nivel_categoria][tipo_profesor_normalizado][session_classification] = {}
+                
+                if seccion_nrc not in unified_estructura[dependencia_key][nivel_categoria][tipo_profesor_normalizado][session_classification]:
+                    unified_estructura[dependencia_key][nivel_categoria][tipo_profesor_normalizado][session_classification][seccion_nrc] = {}
+                
+                # Add/update professor with both hours and PER
+                if profesor_id not in unified_estructura[dependencia_key][nivel_categoria][tipo_profesor_normalizado][session_classification][seccion_nrc]:
+                    unified_estructura[dependencia_key][nivel_categoria][tipo_profesor_normalizado][session_classification][seccion_nrc][profesor_id] = {
+                        'horas': final_hours,
+                        'per': final_per
+                    }
+                else:
+                    
+                    if materia_codigo != 'ISIS-1221':
+                        horas_actuales = unified_estructura[dependencia_key][nivel_categoria][tipo_profesor_normalizado][session_classification][seccion_nrc][profesor_id]['horas']
+                        unified_estructura[dependencia_key][nivel_categoria][tipo_profesor_normalizado][session_classification][seccion_nrc][profesor_id]['horas'] = min(horas_actuales + final_hours, creditos)
+                    else:
+                        unified_estructura[dependencia_key][nivel_categoria][tipo_profesor_normalizado][session_classification][seccion_nrc][profesor_id]['horas'] += final_hours
+                    
+                    
+
+            
+            print("Unified structure calculation completed successfully.")
+            return unified_estructura
+            
+        except Exception as e:
+            print(f"Error calculating unified structure: {e}")
+            return {}
+    
+    def calculate_both_metrics_from_unified_structure(self, unified_estructura: Dict) -> Dict:
+        """
+        Calculate both Horas Promedio and Secciones a Tamaño Estándar from unified structure
+        """
+        try:
+            # Get Tamaño Estándar values for Básico e Intermedio (predefined)
+            tamano_estandar_basico = {
+                'Teorico': 30,
+                'Practico': 20
+            }
+            
+            # Get Tamaño Estándar values for Avanzado (from previous calculation)
+            tamano_estandar_avanzado = self.calculate_tamano_estandar_by_department()
+            
+            # Initialize results
+            combined_results = {}
+            
+            for dependencia, niveles in unified_estructura.items():
+                combined_results[dependencia] = {}
+                
+                for nivel, tipos_prof in niveles.items():
+                    combined_results[dependencia][nivel] = {}
+                    
+                    for tipo_prof, tipos_sesion in tipos_prof.items():
+                        combined_results[dependencia][nivel][tipo_prof] = {}
+                        
+                        for tipo_sesion, secciones in tipos_sesion.items():
+                            # Calculate metrics for this specific combination
+                            
+                            # 1. HORAS PROMEDIO calculation
+                            total_hours = 0
+                            num_sections = len(secciones)
+                            
+                            for nrc, profesores in secciones.items():
+                                section_hours = sum(prof_data['horas'] for prof_data in profesores.values())
+                                total_hours += section_hours
+                            
+                            promedio_horas = total_hours / num_sections if num_sections > 0 else 0
+                            
+                            # 2. SECCIONES A TAMAÑO ESTÁNDAR calculation
+                            total_per = 0
+                            for nrc, profesores in secciones.items():
+                                section_per = sum(prof_data['per'] for prof_data in profesores.values())
+                                total_per += section_per
+                            
+                            # Get appropriate Tamaño Estándar
+                            if nivel == "Basico e intermedio":
+                                tamano_estandar = tamano_estandar_basico.get(tipo_sesion, 30)
+                            else:  # Avanzado
+                                # Try to get from calculated values, fallback to defaults
+                                departamento = self.equivalencia_dependencia_depto(dependencia)
+                                if departamento in tamano_estandar_avanzado:
+                                    dept_data = tamano_estandar_avanzado[departamento]
+                                    tipo_key = 'TEORICO' if tipo_sesion == 'Teorico' else 'PRACTICO'
+                                    if tipo_key in dept_data and dept_data[tipo_key]['tamano_estandar'] > 0:
+                                        tamano_estandar = dept_data[tipo_key]['tamano_estandar']
+                                    else:
+                                        tamano_estandar = tamano_estandar_basico.get(tipo_sesion, 30)
+                                else:
+                                    tamano_estandar = tamano_estandar_basico.get(tipo_sesion, 30)
+                            
+                            secciones_tamano_estandar = total_per / tamano_estandar if tamano_estandar > 0 else 0
+                            
+                            horas = promedio_horas * secciones_tamano_estandar
+                            
+                            profesores = 0
+                            
+                            if tipo_prof != 'CÁTEDRA':
+                                profesores = round(horas/9, 2)
+                                
+                            
+                            
+                            
+                            
+                            
+                            # Store both metrics
+                            combined_results[dependencia][nivel][tipo_prof][tipo_sesion] = {
+                                'promedio_horas': round(promedio_horas, 2),
+                                'secciones_tamano_estandar': round(secciones_tamano_estandar, 2),
+                                'total_horas': round(total_hours, 2),
+                                'total_per': round(total_per, 2),
+                                'num_secciones': num_sections,
+                                'tamano_estandar_usado': tamano_estandar,
+                                'num_profesores': len(set(prof_id for nrc_profs in secciones.values() 
+                                                         for prof_id in nrc_profs.keys())),
+                                'horas': horas,
+                                'profesores': profesores
+                            }
+            
+            return combined_results
+            
+        except Exception as e:
+            print(f"Error calculating combined metrics: {e}")
+            return {}
+        
+    def equivalencia_dependencia_depto(self, dependencia: str) -> str:
+            
+        dependency_to_department = {
+            'DEPARTAMENTO ING DE SISTEMAS Y COMPUTACIÓN': 'INGENIERIA DE SISTEMAS Y COMPU',
+            'DEPARTAMENTO DE INGENIERÍA INDUSTRIAL': 'INGENIERIA INDUSTRIAL',
+            'DEPARTAMENTO DE INGENIERÍA CIVIL Y AMBIENTAL': 'INGENIERIA CIVIL Y AMBIENTAL',
+            'DEPARTAMENTO DE INGENIERÍA MECÁNICA': 'INGENIERIA MECANICA',
+            'DEPARTAMENTO DE INGENIERÍA ELÉCTRICA Y ELECTRÓNICA': 'INGEN. ELECTRICA Y ELECTRONICA',
+            'DEPARTAMENTO DE INGENIERÍA QUÍMICA Y ALIMENTOS': 'INGEN. QUIMICA Y DE ALIMENTOS',
+            'DEPARTAMENTO DE INGENIERÍA BIOMÉDICA': 'INGENIERIA BIOMEDICA',
+        }
+        
+        if dependencia in dependency_to_department:
+            return dependency_to_department[dependencia]
+        else:
+            return dependencia
+        
+    
+    def get_unified_recop_statistics(self) -> Dict:
+        """Get comprehensive statistics for both metrics from unified calculation"""
+        try:
+            # Calculate the unified structure
+            unified_structure = self.calculate_horas_promedio_and_tamano_estandar_unified()
+            
+            if not unified_structure:
+                return {
+                    'total_dependencias': 0,
+                    'total_niveles': 0,
+                    'total_tipos_profesor': 0,
+                    'total_tipos_sesion': 0,
+                    'total_secciones': 0,
+                    'unified_structure': {},
+                    'combined_metrics': {},
+                    'summary': {}
+                }
+            
+            # Calculate both metrics
+            combined_metrics = self.calculate_both_metrics_from_unified_structure(unified_structure)
+            
+            # Calculate summary statistics
+            total_dependencias = len(unified_structure)
+            all_niveles = set()
+            all_tipos_profesor = set()
+            all_tipos_sesion = set()
+            total_secciones = 0
+            
+            for dependencia, niveles in unified_structure.items():
+                for nivel, tipos_prof in niveles.items():
+                    all_niveles.add(nivel)
+                    for tipo_prof, tipos_sesion in tipos_prof.items():
+                        all_tipos_profesor.add(tipo_prof)
+                        for tipo_sesion, secciones in tipos_sesion.items():
+                            all_tipos_sesion.add(tipo_sesion)
+                            total_secciones += len(secciones)
+            
+            # Create detailed summary by dependencia and level
+            dependencia_summary = {}
+            for dependencia, nivel_data in combined_metrics.items():
+                dependencia_summary[dependencia] = {}
+                dependencia_total_horas = 0
+                dependencia_total_per = 0
+                dependencia_total_secciones = 0
+                
+                for nivel, level_data in nivel_data.items():
+                    nivel_horas = sum(
+                        sum(ts_data['total_horas'] for ts_data in tp_data.values())
+                        for tp_data in level_data.values()
+                    )
+                    nivel_per = sum(
+                        sum(ts_data['total_per'] for ts_data in tp_data.values())
+                        for tp_data in level_data.values()
+                    )
+                    nivel_secciones = sum(
+                        sum(ts_data['num_secciones'] for ts_data in tp_data.values())
+                        for tp_data in level_data.values()
+                    )
+                    
+                    dependencia_summary[dependencia][nivel] = {
+                        'tipos_profesor': len(level_data),
+                        'total_horas': nivel_horas,
+                        'total_per': nivel_per,
+                        'total_secciones': nivel_secciones
+                    }
+                    
+                    dependencia_total_horas += nivel_horas
+                    dependencia_total_per += nivel_per
+                    dependencia_total_secciones += nivel_secciones
+                
+                # Add departamento total
+                dependencia_summary[dependencia]['TOTAL'] = {
+                    'total_horas': dependencia_total_horas,
+                    'total_per': dependencia_total_per,
+                    'total_secciones': dependencia_total_secciones,
+                    'niveles': len(nivel_data)
+                }
+            
+            return {
+                'total_dependencias': total_dependencias,
+                'total_niveles': len(all_niveles),
+                'total_tipos_profesor': len(all_tipos_profesor),
+                'total_tipos_sesion': len(all_tipos_sesion),
+                'total_secciones': total_secciones,
+                'niveles_found': sorted(list(all_niveles)),
+                'tipos_profesor_found': sorted(list(all_tipos_profesor)),
+                'tipos_sesion_found': sorted(list(all_tipos_sesion)),
+                'unified_structure': unified_structure,
+                'combined_metrics': combined_metrics,
+                'dependencia_summary': dependencia_summary
+            }
+            
+        except Exception as e:
+            print(f"Error getting unified RECOP statistics: {e}")
+            return {}
+        
+    def normalize_profesor_tipo_for_calculation(self, tipo: str) -> str:
+        """
+        Normalize professor tipo for horas promedio calculation
+        
+        Args:
+            tipo: Professor tipo to normalize
+            
+        Returns:
+            str: Normalized tipo (standalone types or 'CÁTEDRA')
+        """
+        # Standalone professor types whitelist
+        STANDALONE_PROFESOR_TIPOS = [
+            'TITULAR', 'ASOCIADO', 'ASISTENTE', 'ASISTENTE POSDOCTORAL', 
+            'INSTRUCTOR', 'EMERITO', 'VISITANTE', 'AGM', 'AGD'
+        ]
+        
+        if not tipo:
+            return 'CÁTEDRA'
+        
+        tipo_upper = tipo.upper().strip()
+        
+        if tipo_upper in STANDALONE_PROFESOR_TIPOS:
+            return tipo_upper
+        elif tipo_upper == 'PROFESIONAL DISTINGUIDO':
+            return  'ASOCIADO'
+        else:
+            return 'CÁTEDRA'
+    
+    def parse_weekly_frequency(self, dias_string: str) -> int:
+        """
+        Parse weekly frequency from dias string
+        
+        Args:
+            dias_string: Days string (e.g., "L,M,V")
+            
+        Returns:
+            int: Number of days per week
+        """
+        if not dias_string:
+            return 1
+        days = [d.strip() for d in dias_string.split(',') if d.strip()]
+        return len(days)
+    
+    def calculate_horas_reconocidas_formula(self, duracion: int, dias: str, creditos: int, 
+                                          semanas: int, tipo_horario: str, tipo_profesor: str, 
+                                          materia_codigo: str) -> float:
+        """
+        Calculate recognized hours based on complex formula
+        
+        Args:
+            duracion: Session duration in hours
+            dias: Days string (e.g., "L,M,V")
+            creditos: Subject credits
+            semanas: Number of weeks in the period (8 or 16)
+            tipo_horario: Session type
+            tipo_profesor: Professor type (normalized)
+            materia_codigo: Subject code for exceptions
+            
+        Returns:
+            float: Calculated hours
+        """
+        weekly_frequency = self.parse_weekly_frequency(dias)
+        
+        horas_banner = weekly_frequency*duracion
+        
+        horas_reconocidas = min(horas_banner*(semanas/16), creditos)
+        
+        if creditos == 2 and tipo_profesor != 'CÁTEDRA':
+            horas_reconocidas *= 1.17
+        if materia_codigo == 'ISIS-1221':
+            horas_reconocidas = horas_banner*(semanas/16)
+        
+        return float(horas_reconocidas)
+    
+    def classify_session_type(self, tipo_horario: str) -> Optional[str]:
+        """
+        Classify session type into 'Teorico' or 'Practico'
+        
+        Args:
+            tipo_horario: Session type from database
+            
+        Returns:
+            str: 'Teorico', 'Practico', or None if not considered
+        """
+        if not tipo_horario:
+            return None
+        
+        tipo_upper = tipo_horario.upper().strip()
+        
+        # Teorico types
+        if tipo_upper in ['MAGISTRAL', 'TEORICA']:
+            return 'Teorico'
+        
+        # Practico types
+        elif tipo_upper in ['LABORATORIO', 'TALLER Y PBL']:
+            return 'Practico'
+        
+        # Not considered
+        else:
+            return None
+        
+    def get_dependency_for_department(self, department_name: str, professor_dependencia: Optional[str] = None) -> str:
+        """
+        Simple mapping from department to dependency for horas reconocidas calculation
+        
+        Args:
+            department_name: Department name from materia
+            professor_dependencia: Professor's existing dependencia (if any)
+            
+        Returns:
+            str: Resolved dependency name
+        """
+        # If professor already has a dependencia, use it
+        if professor_dependencia and professor_dependencia.strip():
+            return professor_dependencia.strip()
+        
+        # Simple mapping dictionary
+        department_to_dependency = {
+            # Engineering departments (normalize variations)
+            'INGENIERIA DE SISTEMAS Y COMPU': 'DEPARTAMENTO ING DE SISTEMAS Y COMPUTACIÓN',
+            'INGENIERIA INDUSTRIAL': 'DEPARTAMENTO DE INGENIERÍA INDUSTRIAL',
+            'INGENIERIA CIVIL Y AMBIENTAL': 'DEPARTAMENTO DE INGENIERÍA CIVIL Y AMBIENTAL',
+            'INGENIERIA MECANICA': 'DEPARTAMENTO DE INGENIERÍA MECÁNICA',
+            'INGEN. ELECTRICA Y ELECTRONICA': 'DEPARTAMENTO DE INGENIERÍA ELÉCTRICA Y ELECTRÓNICA',
+            'INGEN. QUIMICA Y DE ALIMENTOS': 'DEPARTAMENTO DE INGENIERÍA QUÍMICA Y ALIMENTOS',
+            'INGENIERIA BIOMEDICA': 'DEPARTAMENTO DE INGENIERÍA BIOMÉDICA',
+        }
+        
+        # Try exact match first
+        if department_name in department_to_dependency:
+            return department_to_dependency[department_name]
+        
+        # Try case-insensitive partial match
+        dept_upper = department_name.upper().strip()
+        for dept_key, dependency in department_to_dependency.items():
+            if dept_upper in dept_key.upper() or dept_key.upper() in dept_upper:
+                return dependency
+        
+        # Fallback: use department name as-is
+        return department_name

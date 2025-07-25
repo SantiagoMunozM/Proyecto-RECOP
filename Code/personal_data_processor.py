@@ -112,15 +112,7 @@ class PersonalDataProcessor:
                              dependencia: str = "", tipo_contrato: str = "") -> Dict[str, any]:
         """
         Extract position information from the "Cargo" field and academic ranking columns
-        
-        Args:
-            cargo: The cargo/position string
-            categoria_ordenamiento: Academic category (e.g., "Titular", "Asociado")
-            subcategoria_ordenamiento: Academic subcategory (e.g., "2", "3")
-            categoria_especial: Special category (e.g., "Emerito")
-            
-        Returns:
-            Dictionary with extracted information
+        UPDATED: Apply gender normalization consistently to all tipo extractions
         """
         # Always store the original cargo
         cargo_clean = str(cargo).strip() if cargo and not pd.isna(cargo) else ""
@@ -135,7 +127,7 @@ class PersonalDataProcessor:
             'contrato': tipo_contrato.strip() if tipo_contrato and not pd.isna(tipo_contrato) else None
         }
         
-        print(f"DEBUG: Processing - Cargo: '{cargo_clean}', Categoria: '{categoria_ordenamiento}', Subcategoria: '{subcategoria_ordenamiento}', Especial: '{categoria_especial}'")
+        #print(f"DEBUG: Processing - Cargo: '{cargo_clean}', Categoria: '{categoria_ordenamiento}', Subcategoria: '{subcategoria_ordenamiento}', Especial: '{categoria_especial}'")
         
         # Clean academic ranking fields
         categoria_clean = str(categoria_ordenamiento).strip() if categoria_ordenamiento and not pd.isna(categoria_ordenamiento) else ""
@@ -144,7 +136,7 @@ class PersonalDataProcessor:
         
         # Priority 1: Check for "Categoría Especial" first (highest priority)
         if especial_clean and especial_clean.upper() != "N/A":
-            print(f"DEBUG: Found special category: '{especial_clean}'")
+            #print(f"DEBUG: Found special category: '{especial_clean}'")
             
             # Handle special categories like "Profesor Emerito"
             if "PROFESOR" in especial_clean.upper() and "EMERITO" in especial_clean.upper():
@@ -154,11 +146,11 @@ class PersonalDataProcessor:
                 result['tipo'] = "EMERITO"
                 result['subcategoria'] = None
             else:
-                # For other special categories, use as is
-                result['tipo'] = especial_clean.upper()
+                # For other special categories, normalize gender and use as is
+                result['tipo'] = self.normalize_gender_in_tipo(especial_clean.upper())
                 result['subcategoria'] = None
             
-            print(f"DEBUG: Special category result: tipo='{result['tipo']}', subcategoria={result['subcategoria']}")
+            #print(f"DEBUG: Special category result: tipo='{result['tipo']}', subcategoria={result['subcategoria']}")
             return result
         
         # Priority 2: Check if cargo indicates professor position
@@ -170,31 +162,34 @@ class PersonalDataProcessor:
             if match:
                 cargo_is_professor = True
                 position_part = match.group(1).strip()
-                print(f"DEBUG: Cargo indicates professor: '{position_part}'")
+                #print(f"DEBUG: Cargo indicates professor: '{position_part}'")
                 
                 # Try to extract tipo and subcategoria from cargo
                 ranking_pattern = r'^(\w+)\s+(\d+)$'
                 ranking_match = re.match(ranking_pattern, position_part)
                 
                 if ranking_match:
-                    result['tipo'] = ranking_match.group(1).upper()
+                    # FIXED: Apply gender normalization to cargo-extracted tipo
+                    result['tipo'] = self.normalize_gender_in_tipo(ranking_match.group(1).upper())
                     result['subcategoria'] = int(ranking_match.group(2))
-                    print(f"DEBUG: Extracted from cargo - tipo='{result['tipo']}', subcategoria={result['subcategoria']}")
+                    #print(f"DEBUG: Extracted from cargo - tipo='{result['tipo']}', subcategoria={result['subcategoria']}")
                 else:
-                    result['tipo'] = position_part.upper()
+                    # FIXED: Apply gender normalization to cargo-extracted tipo
+                    result['tipo'] = self.normalize_gender_in_tipo(position_part.upper())
                     result['subcategoria'] = None
-                    print(f"DEBUG: Extracted from cargo - tipo='{result['tipo']}', no subcategoria")
+                    #print(f"DEBUG: Extracted from cargo - tipo='{result['tipo']}', no subcategoria")
         
         # Priority 3: Check "Categoría de ordenamiento" and "Subcategoría de ordenamiento"
         # This applies whether cargo is professor or not (administrative staff who also teach)
         if categoria_clean and categoria_clean.upper() != "N/A":
-            print(f"DEBUG: Found categoria de ordenamiento: '{categoria_clean}'")
+            #print(f"DEBUG: Found categoria de ordenamiento: '{categoria_clean}'")
             
             # If we already have tipo from cargo but categoria provides more specific info, use categoria
             # OR if cargo is not professor but categoria exists (administrative staff who teach)
             if not cargo_is_professor or not result['tipo']:
-                result['tipo'] = categoria_clean.upper()
-                print(f"DEBUG: Using categoria de ordenamiento as tipo: '{result['tipo']}'")
+                # FIXED: Apply gender normalization to categoria-extracted tipo
+                result['tipo'] = self.normalize_gender_in_tipo(categoria_clean.upper())
+                #print(f"DEBUG: Using categoria de ordenamiento as tipo: '{result['tipo']}'")
             
             # Handle subcategoria from subcategoria_ordenamiento
             if subcategoria_clean and subcategoria_clean.upper() != "N/A":
@@ -203,34 +198,95 @@ class PersonalDataProcessor:
                     # Handle cases like "2", "Titular 2", or just "Titular"
                     if subcategoria_clean.isdigit():
                         result['subcategoria'] = int(subcategoria_clean)
-                        print(f"DEBUG: Direct subcategoria number: {result['subcategoria']}")
+                        #print(f"DEBUG: Direct subcategoria number: {result['subcategoria']}")
                     else:
                         # Try to extract number from text like "Titular 2"
                         number_match = re.search(r'(\d+)', subcategoria_clean)
                         if number_match:
                             result['subcategoria'] = int(number_match.group(1))
-                            print(f"DEBUG: Extracted subcategoria number: {result['subcategoria']}")
+                            #print(f"DEBUG: Extracted subcategoria number: {result['subcategoria']}")
                         else:
                             # If no number, use the categoria from subcategoria if different
+                            '''
                             if subcategoria_clean.upper() != categoria_clean.upper():
                                 # This might be a different academic level
                                 print(f"DEBUG: Subcategoria text differs from categoria: '{subcategoria_clean}'")
+                            '''
                             result['subcategoria'] = None
                 except (ValueError, TypeError):
-                    print(f"DEBUG: Could not parse subcategoria: '{subcategoria_clean}'")
+                    #print(f"DEBUG: Could not parse subcategoria: '{subcategoria_clean}'")
                     result['subcategoria'] = None
         
         # Priority 4: If no academic ranking found anywhere, set tipo based on cargo or default
         if not result['tipo']:
             if cargo_clean and cargo_clean.upper() != "N/A":
-                result['tipo'] = cargo_clean.upper()
-                print(f"DEBUG: Using full cargo as tipo: '{result['tipo']}'")
+                # FIXED: Apply gender normalization to fallback tipo
+                result['tipo'] = self.normalize_gender_in_tipo(cargo_clean.upper())
+                #print(f"DEBUG: Using full cargo as tipo: '{result['tipo']}'")
             else:
                 result['tipo'] = "N/A"
-                print(f"DEBUG: No information found, setting tipo to N/A")
+                #print(f"DEBUG: No information found, setting tipo to N/A")
         
-        print(f"DEBUG: Final result: {result}")
+        #print(f"DEBUG: Final result: {result}")
         return result
+    
+    def normalize_gender_in_tipo(self, tipo_text: str) -> str:
+        """
+        Normalize gendered professor titles to standard gender-neutral forms
+        
+        Args:
+            tipo_text: The tipo text to normalize
+            
+        Returns:
+            str: Normalized tipo without gender variations
+        """
+        if not tipo_text:
+            return tipo_text
+        
+        tipo_upper = tipo_text.upper().strip()
+        
+        # Direct mappings for full phrases first
+        direct_mappings = {
+            'PROFESOR ASOCIADO': 'ASOCIADO',
+            'PROFESORA ASOCIADA': 'ASOCIADO',
+            'PROFESOR ASISTENTE': 'ASISTENTE',
+            'PROFESORA ASISTENTE': 'ASISTENTE',
+            'PROFESOR TITULAR': 'TITULAR',
+            'PROFESORA TITULAR': 'TITULAR',
+            'PROFESOR VISITANTE': 'VISITANTE',
+            'PROFESOR DE CÁTEDRA': 'CÁTEDRA',
+            'PROFESORA DE CÁTEDRA': 'CÁTEDRA',
+            'PROFESOR CÁTEDRA': 'CÁTEDRA',
+            'PROFESORA CÁTEDRA': 'CÁTEDRA',
+            'INSTRUCTOR': 'INSTRUCTOR',
+            'INSTRUCTORA': 'INSTRUCTOR'
+        }
+        
+        # Check for exact matches first
+        if tipo_upper in direct_mappings:
+            return direct_mappings[tipo_upper]
+        
+        # Fallback: partial matching for word-based normalization
+        if 'ASOCIADO' in tipo_upper or 'ASOCIADA' in tipo_upper:
+            return 'ASOCIADO'
+        elif 'TITULAR' in tipo_upper:
+            return 'TITULAR'
+        elif 'ADJUNTO' in tipo_upper or 'ADJUNTA' in tipo_upper:
+            return 'ADJUNTO'
+        elif 'CÁTEDRA' in tipo_upper:
+            return 'CÁTEDRA'
+        elif 'INSTRUCTOR' in tipo_upper:
+            return 'INSTRUCTOR'
+        elif 'EMERITO' in tipo_upper:
+            return 'EMERITO'
+        elif 'ASISTENTE GRADUADO DOCTORAL' in tipo_upper:
+            return 'AGD'
+        elif 'ASISTENTE GRADUADO MAESTRÍA' in tipo_upper:
+            return 'AGM'
+        elif 'COORDINADOR ACADÉMICO' in tipo_upper or 'COORDINADORA ACADÉMICA' in tipo_upper:
+            return 'COORDINADOR'
+        # Return original if no match found
+        return tipo_upper
     
     def calculate_name_similarity(self, name1: str, name2: str) -> float:
         """
@@ -331,10 +387,11 @@ class PersonalDataProcessor:
             
             # If we found a good match, add it to results
             if best_match_record:
+                '''
                 print(f"DEBUG: Match found for existing professor {existing_full_name} -> "
                       f"personal data: {best_match_record['personal_data']['full_name_standardized']}, "
                       f"confidence: {best_score:.3f}")
-                
+                '''
                 match_record = {
                     'personal_data': best_match_record['personal_data'],
                     'existing_professor': existing_prof,
@@ -343,13 +400,15 @@ class PersonalDataProcessor:
                     'match_type': 'automatic' if best_score >= 0.95 else 'review_needed'
                 }
                 matches.append(match_record)
+            '''
             else:
                 print(f"DEBUG: No match found for existing professor {existing_full_name}")
+            '''
         
         # Sort by confidence score (highest first)
         matches.sort(key=lambda x: x['match_confidence'], reverse=True)
         
-        print(f"DEBUG: Found {len(matches)} matches for {len(existing_professors)} existing professors")
+        #print(f"DEBUG: Found {len(matches)} matches for {len(existing_professors)} existing professors")
         return matches
     
     def load_personal_data_csv(self, file_path: str) -> pd.DataFrame:
@@ -493,14 +552,16 @@ def test_name_parsing():
         "BROWN JOHNSON, ROBERT"
     ]
     
-    print("Testing name parsing:")
+    #print("Testing name parsing:")
     for name in test_cases:
         nombres, apellidos = processor.standardize_name_from_personal_data(name)
         full_name = processor.create_full_name_standardized(nombres, apellidos)
+        '''
         print(f"Input: {name}")
         print(f"Output: nombres='{nombres}', apellidos='{apellidos}'")
         print(f"Full name: {full_name}")
         print("-" * 50)
+        '''
 
 def test_position_extraction():
     """Test function for position extraction"""
@@ -516,12 +577,14 @@ def test_position_extraction():
         "Asistente Graduado Doctoral Investigación"
     ]
     
-    print("\nTesting position extraction:")
+    #print("\nTesting position extraction:")
     for cargo in test_cases:
         result = processor.extract_position_info(cargo)
+        '''
         print(f"Input: {cargo}")
         print(f"Output: {result}")
         print("-" * 50)
+        '''
 
 # Add this new class to personal_data_processor.py:
 
@@ -871,11 +934,14 @@ def test_subcategory_extraction():
     
     processor = PersonalDataProcessor(None)
     
-    print("\n=== TESTING SUBCATEGORY EXTRACTION ===")
+    #print("\n=== TESTING SUBCATEGORY EXTRACTION ===")
     for cargo in test_cases:
         result = processor.extract_position_info(cargo)
-        print(f"Input: '{cargo}' -> Output: {result}")
-    print("=== END TEST ===\n")
+        
+        
+        #print(f"Input: '{cargo}' -> Output: {result}")
+        
+    #print("=== END TEST ===\n")
     
 
 test_subcategory_extraction()

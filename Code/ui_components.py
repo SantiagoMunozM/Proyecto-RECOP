@@ -6,6 +6,7 @@ from typing import Callable, Optional, List, Dict
 from database import DatabaseManager
 import sys
 import subprocess
+import json
 
 def detect_dark_mode():
     """Detect if system is in dark mode"""
@@ -630,7 +631,8 @@ class DatabaseViewer:
             data = self.db_manager.get_table_data(
                 self.current_table, search_term, self.page_size, offset
             )
-            total_count = self.get_total_record_count(search_term)
+            # FIXED: Pass table_name as first parameter, search_term as second
+            total_count = self.get_total_record_count(self.current_table, search_term)
             
         self.total_records = total_count
         self.total_pages = (self.total_records + self.page_size - 1) // self.page_size
@@ -654,9 +656,31 @@ class DatabaseViewer:
             
             # Insert data
             for i, row in enumerate(data):
-                # Apply alternating row colors
-                tag = 'evenrow' if i % 2 == 0 else 'oddrow'
-                self.tree.insert('', tk.END, values=row, tags=(tag,))
+                # UPDATED: Format dedication data for display
+                if self.current_table == "Seccion" and len(row) >= 8:
+                    formatted_row = list(row)
+                    # Format profesor_dedicaciones (last column) for better readability
+                    if formatted_row[7]:  # profesor_dedicaciones column
+                        try:
+                            if isinstance(formatted_row[7], str):
+                                dedicaciones = json.loads(formatted_row[7])
+                            elif isinstance(formatted_row[7], dict):
+                                dedicaciones = formatted_row[7]
+                            else:
+                                dedicaciones = {}
+                            
+                            if dedicaciones:
+                                # Format as "ID1:ded1%, ID2:ded2%"
+                                formatted_ded = ", ".join([f"{pid}:{ded}%" for pid, ded in dedicaciones.items()])
+                                formatted_row[7] = formatted_ded
+                            else:
+                                formatted_row[7] = "Sin dedicaciones"
+                        except Exception as e:
+                            formatted_row[7] = "Error en formato"
+                    
+                    self.tree.insert('', tk.END, values=formatted_row, tags=('evenrow' if i % 2 == 0 else 'oddrow',))
+                else:
+                    self.tree.insert('', tk.END, values=row, tags=('evenrow' if i % 2 == 0 else 'oddrow',))
             
             # Apply dark mode colors to treeview
             configure_treeview_dark_mode(self.tree, self.theme_colors)
@@ -757,7 +781,7 @@ class DatabaseViewer:
                     search_param = f"%{search_term}%"
                     params.extend([search_param] * 7)
                 
-                result = self.execute_query(query, tuple(params), fetch_one=True)
+                result = self.db_manager.execute_query(query, tuple(params), fetch_one=True)
                 return result[0] if result else 0
             
             # Original logic for other tables
@@ -769,10 +793,10 @@ class DatabaseViewer:
                         search_conditions.append(f"CAST({col} AS TEXT) LIKE ?")
                     query = f"SELECT COUNT(*) FROM {table_name} WHERE ({' OR '.join(search_conditions)})"
                     params = [f"%{search_term}%"] * len(columns)
-                    result = self.execute_query(query, tuple(params), fetch_one=True)
+                    result = self.db_manager.execute_query(query, tuple(params), fetch_one=True)
                     return result[0] if result else 0
             
-            result = self.execute_query(f"SELECT COUNT(*) FROM {table_name}", fetch_one=True)
+            result = self.db_manager.execute_query(f"SELECT COUNT(*) FROM {table_name}", fetch_one=True)
             return result[0] if result else 0
         except Exception as e:
             print(f"Error getting record count for {table_name}: {e}")
@@ -900,9 +924,15 @@ class DatabaseViewer:
                     'seccion_NRC', 'materia_codigo', 'materia_nombre', 
                     'departamento_nombre', 'profesor_ids'
                 ]
+                
+            if table_name == "Seccion":
+                return [
+                    'NRC', 'indicador', 'cupo', 'inscritos', 'cupoDisponible',
+                    'lista_cruzada', 'materia_codigo', 'profesor_dedicaciones'
+                ]
             
             # Original logic for other tables
-            result = self.execute_query(f"PRAGMA table_info({table_name})")
+            result = self.db_manager.execute_query(f"PRAGMA table_info({table_name})")
             return [row[1] for row in result]  # Column name is at index 1
         except Exception as e:
             print(f"Error getting columns for table {table_name}: {e}")
@@ -1023,9 +1053,20 @@ class ProgressDialog:
         self.dialog.lift()
     
     def close(self):
-        """Close the dialog"""
-        self.progress.stop()
-        self.dialog.destroy()
+        """Close the dialog with error handling"""
+        try:
+            if hasattr(self, 'progress') and self.progress:
+                self.progress.stop()
+        except tk.TclError:
+            # Progress bar may already be destroyed
+            pass
+        
+        try:
+            if hasattr(self, 'dialog') and self.dialog:
+                self.dialog.destroy()
+        except tk.TclError:
+            # Dialog may already be destroyed
+            pass
     
     def is_cancelled(self):
         """Check if operation was cancelled"""
@@ -1336,6 +1377,33 @@ class ProfessorSessionsDialog:
         selection_frame = ttk.LabelFrame(main_frame, text="Selección de Profesor", padding="15")
         selection_frame.pack(fill=tk.X, pady=(0, 15))  # Reduced bottom padding
         
+        # Filters row
+        filters_frame = tk.Frame(selection_frame)
+        filters_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Department filter
+        tk.Label(filters_frame, text="Departamento:").pack(side=tk.LEFT)
+        
+        self.department_var = tk.StringVar(value="Todos los departamentos")
+        self.department_combo = ttk.Combobox(filters_frame, textvariable=self.department_var,
+                                            state="readonly", width=25)
+        self.department_combo.pack(side=tk.LEFT, padx=(5, 15))
+        self.department_combo.bind('<<ComboboxSelected>>', self.on_filter_change)
+        
+        # Tipo filter
+        tk.Label(filters_frame, text="Tipo:").pack(side=tk.LEFT)
+        
+        self.tipo_var = tk.StringVar(value="Todos los tipos")
+        self.tipo_combo = ttk.Combobox(filters_frame, textvariable=self.tipo_var,
+                                    state="readonly", width=15)
+        self.tipo_combo.pack(side=tk.LEFT, padx=(5, 15))
+        self.tipo_combo.bind('<<ComboboxSelected>>', self.on_filter_change)
+        
+        # Clear filters button
+        clear_filters_btn = ttk.Button(filters_frame, text="🔄 Limpiar Filtros",
+                                    command=self.clear_filters, style="Gray.TButton")
+        clear_filters_btn.pack(side=tk.LEFT, padx=(5, 0))
+        
         # Search professor section - UPDATED: Horizontal layout to save space
         search_frame = tk.Frame(selection_frame)
         search_frame.pack(fill=tk.X, pady=(0, 15))
@@ -1359,6 +1427,13 @@ class ProfessorSessionsDialog:
         clear_btn = ttk.Button(search_input_frame, text="✕", command=self.clear_search,
                             style="Gray.TButton", width=3)
         clear_btn.pack(side=tk.LEFT, padx=(5, 0))
+        
+        self.results_info_frame = tk.Frame(selection_frame)
+        self.results_info_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.results_label = tk.Label(self.results_info_frame, text="", 
+                                    font=("Arial", 9), fg="gray")
+        self.results_label.pack(side=tk.LEFT)
         
         # Professor selection table - UPDATED WITH PAGINATION
         table_container = tk.Frame(selection_frame)
@@ -1394,60 +1469,176 @@ class ProfessorSessionsDialog:
         self.results_frame = tk.Frame(main_frame)
         
         # Load all professors initially
+        self.load_filters()
         self.load_professors()
 
     
-    def load_professors(self, filter_text=""):
-        """Load professors into paginated table"""
-        self.professors_data = []
-        
+    # In the ProfessorSessionsDialog class, update the load_professors method:
+    
+    # In the ProfessorSessionsDialog class, update the load_professors method:
+    
+    def load_professors(self, filter_text="", tipo_filter=None, department_filter=None):
+        """Load professors into paginated table with filters"""
         try:
-            all_professors = self.db_manager.get_all_profesores()
+            # Get all professors with filtering
+            if tipo_filter or department_filter:
+                professors = self.get_filtered_professors(filter_text, tipo_filter, department_filter)
+            else:
+                # Use existing method for name filtering only
+                if filter_text:
+                    professors = self.db_manager.execute_query(
+                        """SELECT DISTINCT p.id, p.nombres, p.apellidos, p.tipo,
+                                  COUNT(DISTINCT sp.sesion_id) as num_sessions,
+                                  COUNT(DISTINCT scp.seccion_NRC) as num_sections
+                           FROM Profesor p
+                           LEFT JOIN SesionProfesor sp ON p.id = sp.profesor_id
+                           LEFT JOIN SeccionProfesor scp ON p.id = scp.profesor_id
+                           WHERE LOWER(p.nombres) LIKE ? OR LOWER(p.apellidos) LIKE ?
+                           GROUP BY p.id, p.nombres, p.apellidos, p.tipo
+                           ORDER BY p.apellidos, p.nombres""",
+                        (f"%{filter_text.lower()}%", f"%{filter_text.lower()}%")
+                    )
+                else:
+                    professors = self.db_manager.execute_query(
+                        """SELECT DISTINCT p.id, p.nombres, p.apellidos, p.tipo,
+                                  COUNT(DISTINCT sp.sesion_id) as num_sessions,
+                                  COUNT(DISTINCT scp.seccion_NRC) as num_sections
+                           FROM Profesor p
+                           LEFT JOIN SesionProfesor sp ON p.id = sp.profesor_id
+                           LEFT JOIN SeccionProfesor scp ON p.id = scp.profesor_id
+                           GROUP BY p.id, p.nombres, p.apellidos, p.tipo
+                           ORDER BY p.apellidos, p.nombres"""
+                    )
             
-            # Apply search filter if provided
-            if filter_text:
-                filter_text = filter_text.lower()
-                filtered_professors = []
-                for prof in all_professors:
-                    if (filter_text in prof['full_name'].lower() or 
-                        filter_text in prof['departamentos'].lower()):
-                        filtered_professors.append(prof)
-                all_professors = filtered_professors
-            
-            # Prepare data for paginated table
+            # Process results and prepare both table data and professor objects
             table_data = []
-            for prof in all_professors:
-                table_data.append((
-                    prof['full_name'],
-                    prof['departamentos'],
-                    prof['num_sessions'],
-                    prof['num_sections']
-                ))
+            professor_objects = []  # Keep the original objects separate
             
-            # Store data and update paginated table
-            self.professors_data = all_professors
+            for row in professors:
+                profesor_id = row[0]
+                
+                # Get departments for this professor
+                dept_results = self.db_manager.execute_query(
+                    """SELECT DISTINCT departamento_nombre 
+                       FROM ProfesorDepartamento 
+                       WHERE profesor_id = ? 
+                       ORDER BY departamento_nombre""",
+                    (profesor_id,)
+                )
+                
+                departamentos = [dept[0] for dept in dept_results]
+                departamentos_str = ', '.join(departamentos) if departamentos else 'Sin departamento'
+                
+                # Create professor object
+                professor_obj = {
+                    'id': row[0],
+                    'nombres': row[1],
+                    'apellidos': row[2],
+                    'tipo': row[3],
+                    'full_name': f"{row[1]} {row[2]}",
+                    'departamentos': departamentos_str,
+                    'num_sessions': row[4] if row[4] else 0,
+                    'num_sections': row[5] if row[5] else 0
+                }
+                
+                # Create table row data
+                table_row = [
+                    professor_obj['full_name'],
+                    departamentos_str,
+                    professor_obj['num_sessions'],
+                    professor_obj['num_sections']
+                ]
+                
+                table_data.append(table_row)
+                professor_objects.append(professor_obj)
+            
+            # Store the professor objects, NOT the table data
+            self.professors_data = professor_objects
+            
+            # Update paginated table with table data
             self.professor_table.set_data(table_data)
+            
+            # Update results count
+            total_professors = len(self.db_manager.get_all_profesores())
+            self.update_results_count(len(professor_objects), total_professors)
             
         except Exception as e:
             messagebox.showerror("Error", f"Error al cargar profesores: {str(e)}")
     
-    # Update the on_professor_select method:
+    # Also update the on_professor_select method to handle the paginated table properly:
     
     def on_professor_select(self, event=None):
         """Handle professor selection from paginated table"""
         selected_data = self.professor_table.get_selected_item()
-        if selected_data:
-            # Find the professor by name
+        if selected_data and len(selected_data) >= 1:
+            # The selected_data is a tuple from the table
             prof_name = selected_data[0]  # First column is the name
+            
+            # Find the corresponding professor object
             for prof in self.professors_data:
                 if prof['full_name'] == prof_name:
                     self.selected_professor = prof
-                    break
-            
-            self.query_btn.config(state="normal")
-        else:
-            self.selected_professor = None
-            self.query_btn.config(state="disabled")
+                    self.query_btn.config(state="normal")
+                    return
+        
+        # If we get here, no professor was found
+        self.selected_professor = None
+        self.query_btn.config(state="disabled")
+    
+    def get_filtered_professors(self, name_filter="", tipo_filter=None, department_filter=None):
+        """Get professors with tipo and department filters"""
+        
+        # Base query
+        base_query = """
+            SELECT DISTINCT p.id, p.nombres, p.apellidos, p.tipo,
+                   COUNT(DISTINCT sp.sesion_id) as num_sessions,
+                   COUNT(DISTINCT scp.seccion_NRC) as num_sections
+            FROM Profesor p
+            LEFT JOIN SesionProfesor sp ON p.id = sp.profesor_id
+            LEFT JOIN SeccionProfesor scp ON p.id = scp.profesor_id
+        """
+        
+        # Add department join if filtering by department
+        if department_filter and department_filter != "Todos los departamentos":
+            base_query += """
+                JOIN ProfesorDepartamento pd ON p.id = pd.profesor_id
+            """
+        
+        # WHERE conditions
+        conditions = []
+        params = []
+        
+        # Name filter
+        if name_filter:
+            conditions.append("(LOWER(p.nombres) LIKE ? OR LOWER(p.apellidos) LIKE ?)")
+            params.extend([f"%{name_filter.lower()}%", f"%{name_filter.lower()}%"])
+        
+        # Tipo filter (Planta/Cátedra classification)
+        if tipo_filter and tipo_filter != "Todos los tipos":
+            if tipo_filter == "Planta":
+                conditions.append("(p.tipo != 'CÁTEDRA' OR p.tipo IS NULL)")
+            elif tipo_filter == "Cátedra":
+                conditions.append("p.tipo = 'CÁTEDRA'")
+            else:
+                # Specific tipo selected
+                conditions.append("p.tipo = ?")
+                params.append(tipo_filter)
+        
+        # Department filter
+        if department_filter and department_filter != "Todos los departamentos":
+            conditions.append("pd.departamento_nombre = ?")
+            params.append(department_filter)
+        
+        # Combine query
+        if conditions:
+            base_query += " WHERE " + " AND ".join(conditions)
+        
+        base_query += " GROUP BY p.id, p.nombres, p.apellidos, p.tipo ORDER BY p.apellidos, p.nombres"
+        
+        return self.db_manager.execute_query(base_query, tuple(params))
+    
+    # Update the on_professor_select method:
+    
     
     # Update search-related methods:
     
@@ -1464,15 +1655,77 @@ class ProfessorSessionsDialog:
         self.load_professors()
         self.query_btn.config(state="disabled")
         self.selected_professor = None
+
+    
+        # Add these methods to the ProfessorSessionsDialog class:
+    
+    def load_filters(self):
+        """Load filter options"""
+        try:
+            # Load departments
+            departments = self.db_manager.get_departamentos()
+            department_options = ["Todos los departamentos"] + departments
+            self.department_combo['values'] = department_options
+            
+            # Load professor tipos with Planta/Cátedra classification
+            tipos_results = self.db_manager.execute_query(
+                "SELECT DISTINCT tipo FROM Profesor WHERE tipo IS NOT NULL ORDER BY tipo"
+            )
+            tipos = [row[0] for row in tipos_results if row[0]]
+            
+            self.tipo_combo['values'] = tipos
+            
+        except Exception as e:
+            print(f"Error loading filters: {e}")
+    
+    def on_filter_change(self, event=None):
+        """Handle filter change"""
+        self.search_professors()
+        self.query_btn.config(state="disabled")
+        self.selected_professor = None
+    
+    def clear_filters(self):
+        """Clear all filters"""
+        self.department_var.set("Todos los departamentos")
+        self.tipo_var.set("Todos los tipos")
+        self.search_var.set("")
+        self.load_professors()
+        self.query_btn.config(state="disabled")
+        self.selected_professor = None
+    
+    def search_professors(self):
+        """Search professors with filters"""
+        search_text = self.search_var.get().strip()
+        tipo_filter = self.get_current_tipo_filter()
+        department_filter = self.get_current_department_filter()
         
+        self.load_professors(search_text, tipo_filter, department_filter)
+        self.query_btn.config(state="disabled")
+        self.selected_professor = None
+    
+    def get_current_tipo_filter(self):
+        """Get current tipo filter value"""
+        filter_value = self.tipo_var.get()
+        return None if filter_value == "Todos los tipos" else filter_value
+    
+    def get_current_department_filter(self):
+        """Get current department filter value"""
+        filter_value = self.department_var.get()
+        return None if filter_value == "Todos los departamentos" else filter_value
+    
+    def update_results_count(self, filtered_count, total_count):
+        """Update results count display"""
+        if filtered_count == total_count:
+            self.results_label.config(text=f"Mostrando {total_count} profesores")
+        else:
+            self.results_label.config(text=f"Mostrando {filtered_count} de {total_count} profesores")
+    
     def on_search_change(self, event=None):
         """Handle search text change with delay"""
         if hasattr(self, 'search_timer'):
             self.dialog.after_cancel(self.search_timer)
         
         self.search_timer = self.dialog.after(300, self.search_professors)
-    
-    
     
     def query_sessions(self):
         """Query and display professor sessions"""
@@ -4750,4 +5003,857 @@ class ProfessorMateriasDialog:
         """Close the dialog"""
         if self.callback:
             self.callback()
+        self.dialog.destroy()
+        
+class DedicationDataLinkingDialog:
+    """Dialog for dedication data linking process"""
+    
+    def __init__(self, parent, db_manager: DatabaseManager, callback: Callable = None):
+        self.parent = parent
+        self.db_manager = db_manager
+        self.callback = callback
+        self.current_step = 0
+        self.dedication_processor = None
+        self.processing_result = None
+        self.approved_matches = []
+        
+        # Create dialog
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Actualizar Dedicaciones de Profesores")
+        self.dialog.geometry("900x700")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        self.theme_colors = get_theme_colors()
+        self.style = setup_ttk_styles(self.dialog)
+        
+        self.setup_ui()
+        apply_dark_mode_to_dialog(self.dialog, self.theme_colors)
+    
+    def setup_ui(self):
+        """Setup the main UI"""
+        # Main container
+        main_frame = ttk.Frame(self.dialog, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Progress indicator
+        self.progress_frame = ttk.Frame(main_frame)
+        self.progress_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        self.progress_label = ttk.Label(self.progress_frame, text="Paso 1 de 3: Seleccionar Archivo",
+                                       font=("Arial", 12, "bold"))
+        self.progress_label.pack()
+        
+        # Content frame
+        self.content_frame = ttk.Frame(main_frame)
+        self.content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Button frame
+        self.btn_frame = ttk.Frame(main_frame)
+        self.btn_frame.pack(fill=tk.X, pady=(20, 0))
+        
+        # Start with step 1
+        self.show_step_1()
+    
+    def show_step_1(self):
+        """Step 1: File selection and validation"""
+        # Clear content frame
+        for widget in self.content_frame.winfo_children():
+            widget.destroy()
+            
+        self.progress_label.config(text="Paso 1 de 3: Seleccionar Archivo de Dedicaciones")
+        
+        # Instructions
+        instructions_frame = ttk.LabelFrame(self.content_frame, text="Instrucciones", padding="15")
+        instructions_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        instructions_text = (
+            "Seleccione un archivo CSV con información de dedicaciones de profesores.\n\n"
+            "El archivo debe contener las siguientes columnas:\n"
+            "• seccion: NRC de la sección\n"
+            "• profesor: Nombre completo del profesor\n"
+            "• dedicacion: Porcentaje de dedicación (0-200%)\n"
+            "• periodo: Período académico\n\n"
+            "Ejemplo: 39342,DURAN AMOROCHO XAVIER HERNANDO,45,202510"
+        )
+        
+        ttk.Label(instructions_frame, text=instructions_text, 
+                 font=("Arial", 10), justify=tk.LEFT).pack()
+        
+        # File selection
+        file_frame = ttk.LabelFrame(self.content_frame, text="Selección de Archivo", padding="15")
+        file_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        self.file_path_var = tk.StringVar(value="Ningún archivo seleccionado")
+        file_label = ttk.Label(file_frame, textvariable=self.file_path_var, 
+                              font=("Arial", 10), foreground="gray")
+        file_label.pack(pady=(0, 10))
+        
+        select_btn = ttk.Button(file_frame, text="📁 Seleccionar Archivo CSV", 
+                               command=self.select_file, style="Blue.TButton")
+        select_btn.pack()
+        
+        # File validation results
+        self.validation_frame = ttk.LabelFrame(self.content_frame, text="Validación del Archivo", padding="15")
+        self.validation_text = tk.Text(self.validation_frame, height=8, wrap=tk.WORD)
+        validation_scroll = ttk.Scrollbar(self.validation_frame, orient=tk.VERTICAL, command=self.validation_text.yview)
+        self.validation_text.configure(yscrollcommand=validation_scroll.set)
+        
+        self.setup_step_1_navigation()
+    
+    def select_file(self):
+        """Select dedication CSV file"""
+        file_path = filedialog.askopenfilename(
+            title="Seleccionar archivo de dedicaciones",
+            filetypes=[
+                ("CSV files", "*.csv"),
+                ("All files", "*.*")
+            ],
+            initialdir=os.path.expanduser("~")
+        )
+        
+        if file_path:
+            self.file_path = file_path
+            filename = os.path.basename(file_path)
+            self.file_path_var.set(f"📄 {filename}")
+            
+            # Validate file
+            self.validate_file()
+    
+    def validate_file(self):
+        """Validate the selected file"""
+        if not hasattr(self, 'file_path'):
+            return
+        
+        try:
+            from dedication_data_processor import validate_dedication_csv_file
+            validation_result = validate_dedication_csv_file(self.file_path)
+            
+            # Show validation frame
+            self.validation_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Clear previous validation text
+            self.validation_text.delete(1.0, tk.END)
+            
+            # Display validation results
+            if validation_result['valid']:
+                self.validation_text.insert(tk.END, "✅ ARCHIVO VÁLIDO\n\n", "success")
+                self.validation_text.tag_config("success", foreground="green")
+            else:
+                self.validation_text.insert(tk.END, "❌ ARCHIVO INVÁLIDO\n\n", "error")
+                self.validation_text.tag_config("error", foreground="red")
+            
+            # Show file info
+            if validation_result['file_info']:
+                info = validation_result['file_info']
+                self.validation_text.insert(tk.END, f"Información del archivo:\n")
+                self.validation_text.insert(tk.END, f"• Total de filas: {info['total_rows']}\n")
+                self.validation_text.insert(tk.END, f"• Columnas: {', '.join(info['columns'])}\n")
+                self.validation_text.insert(tk.END, f"• Tamaño: {info['file_size_mb']} MB\n\n")
+            
+            # Show errors
+            if validation_result['errors']:
+                self.validation_text.insert(tk.END, "Errores:\n")
+                for error in validation_result['errors']:
+                    self.validation_text.insert(tk.END, f"• {error}\n")
+                self.validation_text.insert(tk.END, "\n")
+            
+            # Show warnings
+            if validation_result['warnings']:
+                self.validation_text.insert(tk.END, "Advertencias:\n")
+                for warning in validation_result['warnings']:
+                    self.validation_text.insert(tk.END, f"• {warning}\n")
+            
+            self.validation_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            if hasattr(self, 'validation_scroll'):  # Check if it exists
+                self.validation_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            # Update navigation
+            self.is_file_valid = validation_result['valid']
+            self.setup_step_1_navigation()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al validar archivo: {str(e)}")
+    
+    def setup_step_1_navigation(self):
+        """Setup navigation for step 1"""
+        for widget in self.btn_frame.winfo_children():
+            widget.destroy()
+        
+        ttk.Button(self.btn_frame, text="Cancelar", command=self.close_dialog,
+                  style="Gray.TButton").pack(side=tk.RIGHT, padx=(10, 0))
+        
+        # Enable next button only if file is valid
+        next_state = "normal" if hasattr(self, 'is_file_valid') and self.is_file_valid else "disabled"
+        ttk.Button(self.btn_frame, text="Siguiente", command=self.process_file,
+                  style="Blue.TButton", state=next_state).pack(side=tk.RIGHT)
+    
+    def process_file(self):
+        """Process the selected file and show matches"""
+        if not hasattr(self, 'file_path') or not self.is_file_valid:
+            return
+        
+        try:
+            # Create dedication processor
+            self.dedication_processor = self.db_manager.create_dedication_processor()
+            if not self.dedication_processor:
+                messagebox.showerror("Error", "No se pudo crear el procesador de dedicaciones.")
+                return
+            
+            # Show processing dialog
+            progress = ProgressDialog(self.parent, "Procesando dedicaciones", 
+                                     "Analizando archivo y buscando coincidencias...")
+            
+            # Process file
+            self.processing_result = self.dedication_processor.process_dedication_csv(self.file_path)
+            progress.close()
+            
+            if not self.processing_result['success']:
+                error_msg = "Errores durante el procesamiento:\n" + "\n".join(self.processing_result['errors'])
+                messagebox.showerror("Error de Procesamiento", error_msg)
+                return
+            
+            # Move to step 2
+            self.current_step = 1
+            self.show_step_2()
+            
+        except Exception as e:
+            if 'progress' in locals():
+                progress.close()
+            messagebox.showerror("Error", f"Error al procesar archivo: {str(e)}")
+    
+    def show_step_2(self):
+        """Step 2: Review matches and approve/reject"""
+        # Clear content frame
+        for widget in self.content_frame.winfo_children():
+            widget.destroy()
+            
+        self.progress_label.config(text="Paso 2 de 3: Revisar y Aprobar Coincidencias")
+        
+        # Statistics summary
+        stats = self.processing_result['statistics']
+        summary_frame = ttk.LabelFrame(self.content_frame, text="Resumen del Procesamiento", padding="10")
+        summary_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        summary_text = (
+            f"Total de filas procesadas: {stats['total_rows']}\n"
+            f"Filas válidas: {stats['valid_rows']}\n"
+            f"Profesores encontrados: {stats['professor_matches']}\n"
+            f"NRCs válidos: {stats['nrc_matches']}\n"
+            f"Entradas duplicadas omitidas: {stats['duplicate_entries']}\n"
+            f"Registros listos para aplicar: {stats['ready_to_apply']}"
+        )
+        
+        ttk.Label(summary_frame, text=summary_text, font=("Arial", 10)).pack(anchor=tk.W)
+        
+        # Matches table
+        matches_frame = ttk.LabelFrame(self.content_frame, text="Coincidencias Encontradas", padding="10")
+        matches_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+        
+        # Create treeview for matches - FIXED: Include all columns including hidden ones
+        columns = ('Profesor CSV', 'Profesor DB', 'NRC', 'Dedicación', 'Estado', 'Problemas', 'match_index')
+        self.matches_tree = ttk.Treeview(matches_frame, columns=columns, show='headings', height=15)
+        
+        # Define visible columns (hide match_index)
+        visible_columns = ('Profesor CSV', 'Profesor DB', 'NRC', 'Dedicación', 'Estado', 'Problemas')
+        for col in visible_columns:
+            self.matches_tree.heading(col, text=col)
+        
+        # Hide the match_index column by setting width to 0
+        self.matches_tree.heading('match_index', text='')
+        self.matches_tree.column('match_index', width=0, stretch=False)
+        
+        # Configure visible column widths
+        self.matches_tree.column('Profesor CSV', width=180)
+        self.matches_tree.column('Profesor DB', width=180)
+        self.matches_tree.column('NRC', width=80)
+        self.matches_tree.column('Dedicación', width=80)
+        self.matches_tree.column('Estado', width=100)
+        self.matches_tree.column('Problemas', width=200)
+        
+        # Add matches data
+        self.load_matches_data()
+        
+        # Scrollbar
+        matches_scroll = ttk.Scrollbar(matches_frame, orient=tk.VERTICAL, command=self.matches_tree.yview)
+        self.matches_tree.configure(yscrollcommand=matches_scroll.set)
+        
+        self.matches_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        matches_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Approval controls
+        controls_frame = ttk.Frame(self.content_frame)
+        controls_frame.pack(fill=tk.X)
+        
+        ttk.Button(controls_frame, text="✅ Aprobar Todos los Válidos", 
+                  command=self.approve_all_valid, style="Green.TButton").pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Button(controls_frame, text="❌ Rechazar Todos", 
+                  command=self.clear_all_approvals, style="Red.TButton").pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Button(controls_frame, text="📋 Ver Detalles", 
+                  command=self.show_match_details, style="Blue.TButton").pack(side=tk.LEFT)
+        
+        # Bind double-click to toggle approval
+        self.matches_tree.bind('<Double-1>', self.toggle_match_approval)
+        
+        self.setup_step_2_navigation()
+    
+    def load_matches_data(self):
+        """Load matches data into the tree"""
+        matches = self.processing_result['matches']
+        
+        for i, match in enumerate(matches):
+            # Determine professor name from DB
+            if match['professor_found']:
+                prof_db = match['professor_match']['professor']['full_name']
+                similarity = f"({match['professor_match']['similarity']:.2f})"
+                prof_db_display = f"{prof_db} {similarity}"
+            else:
+                prof_db_display = "No encontrado"
+            
+            # Determine status
+            if match['can_apply']:
+                status = "✅ Listo"
+                status_tag = "ready"
+            else:
+                status = "❌ Problemas"
+                status_tag = "problems"
+            
+            # Problems summary
+            problems = "; ".join(match['issues']) if match['issues'] else "Ninguno"
+            
+            # FIXED: Include match_index as the last value in the tuple
+            item_id = self.matches_tree.insert('', tk.END, values=(
+                match['professor_name'],
+                prof_db_display,
+                match['nrc'],
+                f"{match['dedicacion']}%",
+                status,
+                problems,
+                i  # This is the match_index value
+            ), tags=(status_tag,))
+        
+        # Configure tags
+        self.matches_tree.tag_configure("ready", background="#d4edda")
+        self.matches_tree.tag_configure("problems", background="#f8d7da")
+        self.matches_tree.tag_configure("approved", background="#cce5ff")
+    def toggle_match_approval(self, event=None):
+        """Toggle approval status of selected match"""
+        selection = self.matches_tree.selection()
+        if not selection:
+            return
+        
+        item = selection[0]
+        # FIXED: Get match_index from the values instead of using set/get
+        values = self.matches_tree.item(item, 'values')
+        match_index = int(values[6])  # match_index is the 7th column (index 6)
+        match = self.processing_result['matches'][match_index]
+        
+        if not match['can_apply']:
+            messagebox.showwarning("No se puede aprobar", 
+                                  "Esta coincidencia tiene problemas y no puede ser aprobada.")
+            return
+        
+        # Toggle approval
+        if match in self.approved_matches:
+            self.approved_matches.remove(match)
+            # Remove approved tag
+            current_tags = list(self.matches_tree.item(item, 'tags'))
+            if 'approved' in current_tags:
+                current_tags.remove('approved')
+            self.matches_tree.item(item, tags=current_tags)
+        else:
+            self.approved_matches.append(match)
+            # Add approved tag
+            current_tags = list(self.matches_tree.item(item, 'tags'))
+            current_tags.append('approved')
+            self.matches_tree.item(item, tags=current_tags)
+        
+        self.update_approval_status()
+    
+    def approve_all_valid(self):
+        """Approve all valid matches"""
+        self.approved_matches = [match for match in self.processing_result['matches'] if match['can_apply']]
+        
+        # Update tree display
+        for item in self.matches_tree.get_children():
+            values = self.matches_tree.item(item, 'values')
+            match_index = int(values[6])  # FIXED: Get from values
+            match = self.processing_result['matches'][match_index]
+            
+            if match['can_apply']:
+                current_tags = list(self.matches_tree.item(item, 'tags'))
+                if 'approved' not in current_tags:
+                    current_tags.append('approved')
+                self.matches_tree.item(item, tags=current_tags)
+        
+        self.update_approval_status()
+    
+    def show_match_details(self):
+        """Show detailed information about selected match"""
+        selection = self.matches_tree.selection()
+        if not selection:
+            messagebox.showinfo("Selección requerida", "Por favor seleccione una coincidencia para ver detalles.")
+            return
+        
+        item = selection[0]
+        values = self.matches_tree.item(item, 'values')
+        match_index = int(values[6])  # FIXED: Get from values
+        match = self.processing_result['matches'][match_index]
+        
+        self.show_match_detail_dialog(match)
+    
+    def clear_all_approvals(self):
+        """Clear all approvals"""
+        self.approved_matches = []
+        
+        # Update tree display
+        for item in self.matches_tree.get_children():
+            current_tags = list(self.matches_tree.item(item, 'tags'))
+            if 'approved' in current_tags:
+                current_tags.remove('approved')
+            self.matches_tree.item(item, tags=current_tags)
+        
+        self.update_approval_status()
+    
+    def show_match_detail_dialog(self, match):
+        """Show detailed match information in a dialog"""
+        detail_window = tk.Toplevel(self.dialog)
+        detail_window.title("Detalles de Coincidencia")
+        detail_window.geometry("600x500")
+        detail_window.transient(self.dialog)
+        detail_window.grab_set()
+        
+        main_frame = ttk.Frame(detail_window, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        ttk.Label(main_frame, text="Detalles de la Coincidencia", 
+                 font=("Arial", 14, "bold")).pack(pady=(0, 20))
+        
+        # Details text
+        details_text = tk.Text(main_frame, wrap=tk.WORD, height=20)
+        details_scroll = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=details_text.yview)
+        details_text.configure(yscrollcommand=details_scroll.set)
+        
+        # Build details content
+        content = f"INFORMACIÓN DEL CSV:\n"
+        content += f"• Profesor: {match['professor_name']}\n"
+        content += f"• NRC: {match['nrc']}\n"
+        content += f"• Dedicación: {match['dedicacion']}%\n"
+        content += f"• Período: {match['periodo']}\n\n"
+        
+        if match['professor_found']:
+            prof_info = match['professor_match']['professor']
+            content += f"COINCIDENCIA EN BASE DE DATOS:\n"
+            content += f"• Profesor encontrado: {prof_info['full_name']}\n"
+            content += f"• ID: {prof_info['id']}\n"
+            content += f"• Tipo: {prof_info['tipo']}\n"
+            content += f"• Similitud: {match['professor_match']['similarity']:.3f}\n\n"
+        else:
+            content += f"COINCIDENCIA EN BASE DE DATOS:\n"
+            content += f"• No se encontró profesor con nombre similar\n\n"
+        
+        content += f"VALIDACIONES:\n"
+        content += f"• Profesor encontrado: {'✅ Sí' if match['professor_found'] else '❌ No'}\n"
+        content += f"• NRC existe: {'✅ Sí' if match['nrc_exists'] else '❌ No'}\n"
+        content += f"• Puede aplicarse: {'✅ Sí' if match['can_apply'] else '❌ No'}\n\n"
+        
+        if match['issues']:
+            content += f"PROBLEMAS DETECTADOS:\n"
+            for issue in match['issues']:
+                content += f"• {issue}\n"
+        
+        details_text.insert(tk.END, content)
+        details_text.config(state=tk.DISABLED)
+        
+        details_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        details_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Close button
+        ttk.Button(main_frame, text="Cerrar", 
+                  command=detail_window.destroy).pack(pady=(20, 0))
+    
+    def update_approval_status(self):
+        """Update the approval status display"""
+        # This method can be extended to show approval counts, etc.
+        pass
+    
+    def setup_step_2_navigation(self):
+        """Setup navigation for step 2"""
+        for widget in self.btn_frame.winfo_children():
+            widget.destroy()
+        
+        ttk.Button(self.btn_frame, text="Atrás", command=self.show_step_1,
+                  style="Gray.TButton").pack(side=tk.LEFT)
+        
+        ttk.Button(self.btn_frame, text="Cancelar", command=self.close_dialog,
+                  style="Gray.TButton").pack(side=tk.RIGHT, padx=(10, 0))
+        
+        self.apply_btn = ttk.Button(self.btn_frame, text="Aplicar Cambios", 
+                                   command=self.show_step_3, style="Green.TButton")
+        self.apply_btn.pack(side=tk.RIGHT)
+        
+        # Show approval count
+        approved_count = len(self.approved_matches)
+        total_valid = len([m for m in self.processing_result['matches'] if m['can_apply']])
+        
+        count_label = ttk.Label(self.btn_frame, 
+                               text=f"Aprobados: {approved_count} de {total_valid} válidos")
+        count_label.pack(side=tk.RIGHT, padx=(0, 20))
+    
+    def show_step_3(self):
+        """Step 3: Apply changes and show results"""
+        if not self.approved_matches:
+            messagebox.showwarning("Sin cambios", "No hay coincidencias aprobadas para aplicar.")
+            return
+        
+        # Clear content frame
+        for widget in self.content_frame.winfo_children():
+            widget.destroy()
+            
+        self.progress_label.config(text="Paso 3 de 3: Aplicando Cambios")
+        
+        # Show what will be applied
+        summary_frame = ttk.LabelFrame(self.content_frame, text="Cambios a Aplicar", padding="15")
+        summary_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        summary_text = (
+            f"Se aplicarán {len(self.approved_matches)} actualizaciones de dedicación.\n\n"
+            f"Esto actualizará los porcentajes de dedicación de profesores en las secciones correspondientes.\n"
+            f"Los profesores deben estar previamente asignados a las secciones para que la actualización sea exitosa."
+        )
+        
+        ttk.Label(summary_frame, text=summary_text, font=("Arial", 10)).pack()
+        
+        # Apply button and results
+        apply_frame = ttk.LabelFrame(self.content_frame, text="Aplicar Actualizaciones", padding="15")
+        apply_frame.pack(fill=tk.BOTH, expand=True)
+        
+        self.apply_changes_btn = ttk.Button(apply_frame, text="🚀 Aplicar Actualizaciones", 
+                                           command=self.apply_changes, style="Green.TButton")
+        self.apply_changes_btn.pack(pady=(0, 15))
+        
+        # Results area
+        self.results_text = tk.Text(apply_frame, wrap=tk.WORD, height=15)
+        results_scroll = ttk.Scrollbar(apply_frame, orient=tk.VERTICAL, command=self.results_text.yview)
+        self.results_text.configure(yscrollcommand=results_scroll.set)
+        
+        self.results_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        results_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.setup_step_3_navigation()
+    
+    def apply_changes(self):
+        """Apply the approved dedication changes"""
+        if not self.approved_matches:
+            return
+        
+        try:
+            # Disable apply button
+            self.apply_changes_btn.config(state="disabled")
+            
+            # Show progress
+            self.results_text.insert(tk.END, "Aplicando actualizaciones de dedicación...\n\n")
+            self.results_text.update()
+            
+            # Apply changes using the processor
+            results = self.dedication_processor.apply_dedication_matches(self.approved_matches)
+            
+            # Display results
+            if results['updated'] > 0:
+                self.results_text.insert(tk.END, f"✅ ACTUALIZACIÓN EXITOSA\n\n")
+                self.results_text.insert(tk.END, f"Secciones actualizadas: {results['updated']}\n\n")
+                
+                # Show details of updated sections
+                self.results_text.insert(tk.END, "DETALLES DE ACTUALIZACIONES:\n")
+                self.results_text.insert(tk.END, "=" * 50 + "\n")
+                
+                for section_update in results['updated_sections']:
+                    self.results_text.insert(tk.END, f"\nSección NRC: {section_update['nrc']}\n")
+                    self.results_text.insert(tk.END, f"Total dedicación: {section_update['total_dedicacion']}%\n")
+                    self.results_text.insert(tk.END, f"Profesores actualizados:\n")
+                    
+                    for prof_update in section_update['professor_updates']:
+                        self.results_text.insert(tk.END, 
+                            f"  • {prof_update['profesor_name']}: {prof_update['dedicacion']}%\n")
+                
+                # Show success message
+                messagebox.showinfo("Actualización Exitosa", 
+                                   f"Se actualizaron {results['updated']} secciones con información de dedicación.")
+                
+                # Call callback if provided
+                if self.callback:
+                    self.callback()
+            
+            else:
+                self.results_text.insert(tk.END, f"❌ NO SE APLICARON CAMBIOS\n\n")
+                self.results_text.insert(tk.END, "No se pudo actualizar ninguna sección.\n")
+            
+            # Show errors if any
+            if results['errors']:
+                self.results_text.insert(tk.END, f"\nERRORES ENCONTRADOS:\n")
+                for error in results['errors']:
+                    self.results_text.insert(tk.END, f"• {error}\n")
+            
+            self.results_text.insert(tk.END, f"\n" + "=" * 50 + "\n")
+            self.results_text.insert(tk.END, f"Proceso completado.\n")
+            
+        except Exception as e:
+            self.results_text.insert(tk.END, f"❌ ERROR: {str(e)}\n")
+            messagebox.showerror("Error", f"Error al aplicar cambios: {str(e)}")
+        finally:
+            self.apply_changes_btn.config(state="normal")
+    
+    def setup_step_3_navigation(self):
+        """Setup navigation for step 3"""
+        for widget in self.btn_frame.winfo_children():
+            widget.destroy()
+        
+        ttk.Button(self.btn_frame, text="Atrás", command=self.show_step_2,
+                  style="Gray.TButton").pack(side=tk.LEFT)
+        
+        ttk.Button(self.btn_frame, text="Finalizar", command=self.close_dialog,
+                  style="Green.TButton").pack(side=tk.RIGHT)
+    
+    def close_dialog(self):
+        """Close the dialog"""
+        self.dialog.destroy()
+        
+class DedicationViewerDialog:
+    """Dialog for viewing dedication information across the system"""
+    
+    def __init__(self, parent, db_manager: DatabaseManager, callback: Callable = None):
+        self.parent = parent
+        self.db_manager = db_manager
+        self.callback = callback
+        
+        # Create dialog
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Visor de Dedicaciones")
+        self.dialog.geometry("1200x800")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        self.theme_colors = get_theme_colors()
+        self.style = setup_ttk_styles(self.dialog)
+        
+        self.setup_ui()
+        apply_dark_mode_to_dialog(self.dialog, self.theme_colors)
+    
+    def setup_ui(self):
+        """Setup the main UI"""
+        # Main container
+        main_frame = ttk.Frame(self.dialog, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        title_frame = ttk.Frame(main_frame)
+        title_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        ttk.Label(title_frame, text="Visor de Dedicaciones", 
+                 font=("Arial", 16, "bold")).pack(side=tk.LEFT)
+        
+        ttk.Button(title_frame, text="✕ Cerrar", command=self.close_dialog,
+                  style="Red.TButton").pack(side=tk.RIGHT)
+        
+        # Create notebook for different views
+        self.notebook = ttk.Notebook(main_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Tab 1: By Section
+        self.create_sections_tab()
+        
+        # Tab 2: By Professor
+        self.create_professors_tab()
+        
+        # Tab 3: Summary Statistics
+        self.create_summary_tab()
+    
+    def create_sections_tab(self):
+        """Create tab showing dedicaciones by section"""
+        sections_frame = ttk.Frame(self.notebook)
+        self.notebook.add(sections_frame, text="Por Sección")
+        
+        # Load sections with dedication info
+        self.load_sections_view(sections_frame)
+    
+    def create_professors_tab(self):
+        """Create tab showing dedicaciones by professor"""
+        professors_frame = ttk.Frame(self.notebook)
+        self.notebook.add(professors_frame, text="Por Profesor")
+        
+        # Load professors with dedication info
+        self.load_professors_view(professors_frame)
+    
+    def create_summary_tab(self):
+        """Create tab showing dedication statistics"""
+        summary_frame = ttk.Frame(self.notebook)
+        self.notebook.add(summary_frame, text="Resumen")
+        
+        # Load summary statistics
+        self.load_summary_view(summary_frame)
+    
+    def load_sections_view(self, parent):
+        """Load sections view with dedication information"""
+        try:
+            sections = self.db_manager.get_sections_with_dedication_info()
+            
+            # Create table
+            columns = ('NRC', 'Materia', 'Departamento', 'Profesores', 'Dedicación Total', 'Estudiantes')
+            tree = ttk.Treeview(parent, columns=columns, show='headings', height=25)
+            
+            # Configure columns
+            tree.heading('NRC', text='NRC')
+            tree.heading('Materia', text='Materia')
+            tree.heading('Departamento', text='Departamento')
+            tree.heading('Profesores', text='Profesores')
+            tree.heading('Dedicación Total', text='Total Dedic.%')
+            tree.heading('Estudiantes', text='Estudiantes')
+            
+            tree.column('NRC', width=80)
+            tree.column('Materia', width=120)
+            tree.column('Departamento', width=180)
+            tree.column('Profesores', width=60)
+            tree.column('Dedicación Total', width=100)
+            tree.column('Estudiantes', width=80)
+            
+            # Add data
+            for section in sections:
+                professor_count = len(section['dedicaciones']) if section['dedicaciones'] else 0
+                
+                tree.insert('', tk.END, values=(
+                    section['nrc'],
+                    section['materia_codigo'],
+                    section['departamento'],
+                    professor_count,
+                    f"{section['total_dedicacion']}%",
+                    f"{section['inscritos']}/{section['cupo']}"
+                ))
+            
+            # Scrollbar
+            scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
+            
+            tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+        except Exception as e:
+            ttk.Label(parent, text=f"Error cargando datos: {str(e)}").pack()
+    
+    def load_professors_view(self, parent):
+        """Load professors view with dedication information"""
+        try:
+            professors = self.db_manager.get_professor_dedication_summary()
+            
+            # Create table
+            columns = ('Profesor', 'Secciones', 'Dedicación Total', 'Secciones con Dedicación', 'Promedio por Sección')
+            tree = ttk.Treeview(parent, columns=columns, show='headings', height=25)
+            
+            # Configure columns
+            tree.heading('Profesor', text='Profesor')
+            tree.heading('Secciones', text='Secciones')
+            tree.heading('Dedicación Total', text='Total Dedic.%')
+            tree.heading('Secciones con Dedicación', text='Con Dedicación')
+            tree.heading('Promedio por Sección', text='Promedio%')
+            
+            tree.column('Profesor', width=200)
+            tree.column('Secciones', width=80)
+            tree.column('Dedicación Total', width=100)
+            tree.column('Secciones con Dedicación', width=120)
+            tree.column('Promedio por Sección', width=100)
+            
+            # Add data
+            for prof in professors:
+                avg_dedication = (prof['total_dedicacion'] / prof['total_sections']) if prof['total_sections'] > 0 else 0
+                
+                tree.insert('', tk.END, values=(
+                    prof['full_name'],
+                    prof['total_sections'],
+                    f"{prof['total_dedicacion']}%",
+                    prof['sections_with_dedicacion'],
+                    f"{avg_dedication:.1f}%"
+                ))
+            
+            # Scrollbar
+            scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
+            
+            tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+        except Exception as e:
+            ttk.Label(parent, text=f"Error cargando datos: {str(e)}").pack()
+    
+    def load_summary_view(self, parent):
+        """Load summary statistics view"""
+        try:
+            # Get summary data
+            sections = self.db_manager.get_sections_with_dedication_info()
+            professors = self.db_manager.get_professor_dedication_summary()
+            
+            # Calculate statistics
+            total_sections = len(sections)
+            sections_with_dedication = len([s for s in sections if s['total_dedicacion'] > 0])
+            total_professors = len(professors)
+            professors_with_dedication = len([p for p in professors if p['total_dedicacion'] > 0])
+            
+            # Over/under dedication analysis
+            over_100_sections = len([s for s in sections if s['total_dedicacion'] > 100])
+            under_50_sections = len([s for s in sections if 0 < s['total_dedicacion'] < 50])
+            
+            # Create summary display
+            summary_text = tk.Text(parent, wrap=tk.WORD, height=30, width=80)
+            scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=summary_text.yview)
+            summary_text.configure(yscrollcommand=scrollbar.set)
+            
+            # Build summary content
+            content = "RESUMEN DE DEDICACIONES\n"
+            content += "=" * 50 + "\n\n"
+            
+            content += "ESTADÍSTICAS GENERALES:\n"
+            content += f"• Total de secciones: {total_sections}\n"
+            content += f"• Secciones con dedicación asignada: {sections_with_dedication}\n"
+            content += f"• Porcentaje de cobertura: {(sections_with_dedication/total_sections*100):.1f}%\n\n"
+            
+            content += f"• Total de profesores: {total_professors}\n"
+            content += f"• Profesores con dedicación asignada: {professors_with_dedication}\n"
+            content += f"• Porcentaje de profesores activos: {(professors_with_dedication/total_professors*100):.1f}%\n\n"
+            
+            content += "ANÁLISIS DE DEDICACIÓN:\n"
+            content += f"• Secciones con sobrededicación (>100%): {over_100_sections}\n"
+            content += f"• Secciones con baja dedicación (<50%): {under_50_sections}\n"
+            content += f"• Secciones sin dedicación: {total_sections - sections_with_dedication}\n\n"
+            
+            if sections_with_dedication > 0:
+                avg_dedication = sum(s['total_dedicacion'] for s in sections if s['total_dedicacion'] > 0) / sections_with_dedication
+                content += f"• Promedio de dedicación por sección: {avg_dedication:.1f}%\n\n"
+            
+            content += "TOP 10 SECCIONES POR DEDICACIÓN:\n"
+            content += "-" * 30 + "\n"
+            top_sections = sorted([s for s in sections if s['total_dedicacion'] > 0], 
+                                key=lambda x: x['total_dedicacion'], reverse=True)[:10]
+            
+            for i, section in enumerate(top_sections, 1):
+                content += f"{i:2d}. NRC {section['nrc']} ({section['materia_codigo']}): {section['total_dedicacion']}%\n"
+            
+            content += "\nTOP 10 PROFESORES POR DEDICACIÓN:\n"
+            content += "-" * 30 + "\n"
+            top_professors = sorted([p for p in professors if p['total_dedicacion'] > 0], 
+                                  key=lambda x: x['total_dedicacion'], reverse=True)[:10]
+            
+            for i, prof in enumerate(top_professors, 1):
+                content += f"{i:2d}. {prof['full_name']}: {prof['total_dedicacion']}% ({prof['total_sections']} secciones)\n"
+            
+            summary_text.insert(tk.END, content)
+            summary_text.config(state=tk.DISABLED)
+            
+            summary_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+        except Exception as e:
+            ttk.Label(parent, text=f"Error cargando resumen: {str(e)}").pack()
+    
+    def close_dialog(self):
+        """Close the dialog"""
         self.dialog.destroy()

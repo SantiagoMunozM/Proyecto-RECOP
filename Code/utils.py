@@ -218,9 +218,97 @@ class DataValidator:
                 raise ValidationError(f"Día inválido: {day}. Use L,M,I,J,V,S,D")
                 
         return ','.join(day_list)
+    
+    @staticmethod
+    def validate_semanas(semanas: Union[int, str]) -> int:
+        """
+        Validate semanas (weeks) value
+        
+        Args:
+            semanas: Semanas value to validate
+            
+        Returns:
+            int: Valid semanas value (8 or 16)
+            
+        Raises:
+            ValidationError: If semanas value is invalid
+        """
+        try:
+            semanas_int = int(semanas)
+            if semanas_int not in [8, 16]:
+                raise ValidationError("Semanas debe ser 8 o 16")
+            return semanas_int
+        except (ValueError, TypeError):
+            raise ValidationError("Semanas debe ser un número válido (8 o 16)")
+    
+    @staticmethod
+    def validate_parte_pdo(parte_pdo: str) -> str:
+        """
+        Validate Parte pdo format
+        
+        Args:
+            parte_pdo: Parte pdo value to validate
+            
+        Returns:
+            str: Valid parte_pdo value
+            
+        Raises:
+            ValidationError: If parte_pdo format is invalid
+        """
+        if not parte_pdo:
+            return "16"  # Default value
+        
+        parte_pdo_clean = str(parte_pdo).strip().upper()
+        
+        # Common valid values
+        valid_values = ['1', '2', '3', '4', '5', '6', '7', '8', '8A', '8B', '9', '10', '11', '12']
+        
+        if parte_pdo_clean not in valid_values:
+            raise ValidationError(f"Valor de Parte pdo no reconocido: {parte_pdo_clean}")
+        
+        return parte_pdo_clean
 
 class DataFormatter:
     """Class for data formatting functions"""
+    
+    @staticmethod
+    def calculate_semanas_from_parte_pdo(parte_pdo: Any) -> int:
+        """
+        Calculate semanas from Parte pdo value
+        
+        Args:
+            parte_pdo: Parte pdo value from CSV
+            
+        Returns:
+            int: 8 if parte_pdo is "8A" or "8B", otherwise 16
+        """
+        if pd.isna(parte_pdo) or parte_pdo is None:
+            return 16
+        
+        parte_pdo_str = str(parte_pdo).strip().upper()
+        
+        if parte_pdo_str in ['8A', '8B']:
+            return 8
+        else:
+            return 16
+    
+    @staticmethod
+    def format_semanas_display(semanas: int) -> str:
+        """
+        Format semanas for display
+        
+        Args:
+            semanas: Number of weeks
+            
+        Returns:
+            str: Formatted display string
+        """
+        if semanas == 8:
+            return "8 semanas (Medio período)"
+        elif semanas == 16:
+            return "16 semanas (Período completo)"
+        else:
+            return f"{semanas} semanas"
     
     @staticmethod
     def format_time_from_excel(time_value: Any) -> Optional[str]:
@@ -796,8 +884,8 @@ class Constants:
     DEFAULT_DB_NAME = 'university_schedule.db'
     
     # UI constants
-    DEFAULT_WINDOW_WIDTH = 800
-    DEFAULT_WINDOW_HEIGHT = 600
+    DEFAULT_WINDOW_WIDTH = 1200
+    DEFAULT_WINDOW_HEIGHT = 900
     DEFAULT_DIALOG_WIDTH = 400
     DEFAULT_DIALOG_HEIGHT = 300
     

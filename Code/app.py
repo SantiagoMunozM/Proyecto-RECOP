@@ -127,11 +127,11 @@ class RECOPSimulator:
         
         # Instructions
         instructions = ttk.Label(upload_frame, 
-                               text="Cargue archivos CSV con datos académicos o vincule datos personales de profesores:",
+                               text="Cargue archivos CSV con datos académicos, vincule datos personales o actualice dedicaciones:",
                                font=("Arial", 11))
         instructions.pack(pady=(0, 10))
         
-        # Sub-instructions for each button
+        # Sub-instructions for each button - Updated for three columns
         sub_instructions_frame = tk.Frame(upload_frame)
         sub_instructions_frame.pack(fill=tk.X, pady=(0, 15))
         
@@ -143,23 +143,30 @@ class RECOPSimulator:
         tk.Label(left_frame, text="Datos de materias, secciones, profesores y sesiones", 
                  font=("Arial", 8), fg="gray").pack(anchor=tk.W)
         
-        # Right side - Personal data
+        # Middle - Personal data
+        middle_frame = tk.Frame(sub_instructions_frame)
+        middle_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        tk.Label(middle_frame, text="👥 Datos Personales:", font=("Arial", 9, "bold")).pack(anchor=tk.W)
+        tk.Label(middle_frame, text="Información adicional de empleados", 
+                 font=("Arial", 8), fg="gray").pack(anchor=tk.W)
+        
+        # Right side - Dedication data (NEW)
         right_frame = tk.Frame(sub_instructions_frame)
         right_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
-        tk.Label(right_frame, text="👥 Datos Personales:", font=("Arial", 9, "bold")).pack(anchor=tk.W)
-        tk.Label(right_frame, text="Información adicional de empleados (requiere DB existente)", 
+        tk.Label(right_frame, text="📊 Dedicaciones:", font=("Arial", 9, "bold")).pack(anchor=tk.W)
+        tk.Label(right_frame, text="Porcentajes de dedicación por sección", 
                  font=("Arial", 8), fg="gray").pack(anchor=tk.W)
         
         # Buttons container
         buttons_container = tk.Frame(upload_frame)
         buttons_container.pack(fill=tk.X)
         
-        # FIXED: Academic CSV buttons - separate select and process
-        # Select CSV button
+        # Academic CSV buttons - separate select and process
         self.select_csv_btn = ttk.Button(
             buttons_container,
-            text="� Seleccionar CSV",
+            text="📁 Seleccionar CSV",
             command=self.select_csv_file,
             style="Blue.TButton"
         )
@@ -183,7 +190,17 @@ class RECOPSimulator:
             state="disabled",
             style="Teal.TButton"
         )
-        self.upload_personal_btn.pack(side=tk.LEFT)
+        self.upload_personal_btn.pack(side=tk.LEFT, padx=(0, 15))
+        
+        # NEW: Dedication data upload button
+        self.upload_dedication_btn = ttk.Button(
+            buttons_container,
+            text="📊 Actualizar Dedicaciones",
+            command=self.upload_dedication_data,
+            state="disabled",
+            style="Orange.TButton"
+        )
+        self.upload_dedication_btn.pack(side=tk.LEFT)
         
         # File info display
         self.file_info_var = tk.StringVar(value="Ningún archivo seleccionado")
@@ -196,7 +213,7 @@ class RECOPSimulator:
         self.progress_bar = ttk.Progressbar(upload_frame, variable=self.progress_var, 
                                            maximum=100, style="Blue.Horizontal.TProgressbar")
         self.progress_bar.pack(fill=tk.X, pady=(10, 0))
-        self.progress_bar.pack_forget()  # Initially hidden        
+        self.progress_bar.pack_forget()  # Initially hidden     
         
     def create_database_section(self, parent):
         """Create database operations section"""
@@ -224,6 +241,15 @@ class RECOPSimulator:
             style="Blue.TButton"
         )
         self.stats_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.view_dedication_btn = ttk.Button(
+            row1,
+            text="📊 Ver Dedicaciones",
+            command=self.view_dedication_data,
+            state="disabled",
+            style="Teal.TButton"
+        )
+        self.view_dedication_btn.pack(side=tk.LEFT, padx=(0, 10))
         
         self.backup_btn = ttk.Button(
             row1,
@@ -440,6 +466,32 @@ class RECOPSimulator:
         )
         self.reset_per_34_btn.pack(side=tk.LEFT)
         
+            # Fourth row - Horas Promedio por Sección (NEW)
+        horas_row = tk.Frame(button_container)
+        horas_row.pack(fill=tk.X)
+        
+        ttk.Label(horas_row, text="Horas Promedio por Sección y Secciones a Tamaño Estándar:", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Calculate Horas Promedio button
+        self.calculate_horas_btn = ttk.Button(
+            horas_row,
+            text="⏱️ Calcular Hr. Promedio y Secc. a TS",
+            command=self.calculate_horas_promedio_automatic,
+            state="disabled",
+            style="Green.TButton"
+        )
+        self.calculate_horas_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # View Horas Promedio statistics button
+        self.view_horas_stats_btn = ttk.Button(
+            horas_row,
+            text="📊 Ver Dashboard",
+            command=self.view_unified_recop_dashboard,
+            state="disabled",
+            style="Blue.TButton"
+        )
+        self.view_horas_stats_btn.pack(side=tk.LEFT)
+        
     
     def create_status_bar(self):
         """Create status bar at bottom"""
@@ -500,7 +552,9 @@ class RECOPSimulator:
             'create_departamento_btn', 'create_profesor_btn', 'create_materia_btn', 'create_seccion_btn',
             'upload_personal_btn', 'calculate_per_btn', 'view_per_stats_btn', 'reset_per_btn',
             'calculate_tamano_btn', 'view_tamano_stats_btn',
-            'calculate_per_34_btn', 'reset_per_34_btn'
+            'calculate_per_34_btn', 'reset_per_34_btn',
+            'upload_personal_btn', 'upload_dedication_btn', 'view_dedication_btn',
+            'calculate_horas_btn', 'view_horas_stats_btn'
         ]
         
         for btn_name in buttons:
@@ -515,7 +569,9 @@ class RECOPSimulator:
             'create_departamento_btn', 'create_profesor_btn', 'create_materia_btn', 'create_seccion_btn',
             'upload_personal_btn', 'calculate_per_btn', 'view_per_stats_btn', 'reset_per_btn',
             'calculate_tamano_btn', 'view_tamano_stats_btn',
-            'calculate_per_34_btn', 'reset_per_34_btn'
+            'calculate_per_34_btn', 'reset_per_34_btn',
+            'upload_personal_btn', 'upload_dedication_btn', 'view_dedication_btn',
+            'calculate_horas_btn', 'view_horas_stats_btn'
         ]
         
         for btn_name in buttons:
@@ -840,8 +896,17 @@ class RECOPSimulator:
             
             # Calculate new PER values
             updates = []
+            grouped_count = 0
+            individual_count = 0
+            
             for session in sessions:
                 new_per = self.calculate_per_formula(session['tipo_horario'], session['inscritos'])
+                
+                # Track grouping statistics
+                if 'grouped_with' in session:
+                    grouped_count += 1
+                else:
+                    individual_count += 1
                 
                 # Only update if PER changed
                 if new_per != session['current_per']:
@@ -851,23 +916,32 @@ class RECOPSimulator:
                         'old_per': session['current_per'],
                         'materia': session['materia_codigo'],
                         'tipo_horario': session['tipo_horario'],
-                        'inscritos': session['inscritos']
+                        'inscritos': session['inscritos'],
+                        'original_inscritos': session.get('original_inscritos', session['inscritos']),
+                        'grouped_with': session.get('grouped_with', None),
+                        'group_size': session.get('group_size', 1)
                     })
             
             if not updates:
                 messagebox.showinfo("Sin cambios", "Todos los valores PER ya están actualizados según la fórmula.")
                 return
             
-            # Show confirmation with summary
+            # Show confirmation with summary including grouping info
             confirm_msg = (
-                f"¿Aplicar cálculo automático de PER?\n\n"
-                f"Se actualizarán {len(updates)} sesiones de {len(sessions)} totales.\n\n"
+                f"¿Aplicar cálculo automático de PER con agrupación por Lista Cruzada?\n\n"
+                f"Se actualizarán {len(updates)} sesiones de {len(sessions)} totales.\n"
+                f"• Sesiones agrupadas: {grouped_count}\n"
+                f"• Sesiones individuales: {individual_count}\n\n"
                 f"Ejemplo de cambios:\n"
             )
             
-            # Show first 3 examples
+            # Show first 3 examples with grouping info
             for i, update in enumerate(updates[:3]):
-                confirm_msg += f"• {update['materia']}: {update['old_per']} → {update['new_per']}\n"
+                if update.get('grouped_with'):
+                    confirm_msg += (f"• {update['materia']}: {update['old_per']} → {update['new_per']} "
+                                  f"(Agrupado: {update['grouped_with']}, PE combinado: {update['inscritos']})\n")
+                else:
+                    confirm_msg += f"• {update['materia']}: {update['old_per']} → {update['new_per']}\n"
             
             if len(updates) > 3:
                 confirm_msg += f"  ... y {len(updates) - 3} más"
@@ -880,8 +954,9 @@ class RECOPSimulator:
             
             if updated_count > 0:
                 messagebox.showinfo("Cálculo Completado", 
-                                   f"Se actualizaron {updated_count} valores PER exitosamente.")
-                self.status_var.set(f"PER calculado automáticamente - {updated_count} sesiones actualizadas")
+                                   f"Se actualizaron {updated_count} valores PER exitosamente.\n"
+                                   f"Se utilizó agrupación por Lista Cruzada para combinar estudiantes.")
+                self.status_var.set(f"PER calculado con agrupación - {updated_count} sesiones actualizadas")
             else:
                 messagebox.showerror("Error", "No se pudieron actualizar los valores PER.")
             
@@ -891,8 +966,6 @@ class RECOPSimulator:
     def calculate_per_formula(self, tipo_horario: str, inscritos: int) -> int:
         """
         Calculate PER value based on tipo_horario and inscritos
-        
-        TODO: Implement your specific formula here
         
         Args:
             tipo_horario: Type of schedule (e.g., 'Magistral', 'Laboratorio')
@@ -1205,19 +1278,31 @@ class RECOPSimulator:
                                    "o todos los valores ya están actualizados.")
                 return
             
-            # Show confirmation with detailed summary
+            # Count grouping statistics
+            grouped_updates = [u for u in updates if u.get('grouped_with')]
+            individual_updates = [u for u in updates if not u.get('grouped_with')]
+            
+            # Show confirmation with detailed summary including grouping
             confirm_msg = (
-                f"¿Aplicar cálculo automático de PER para niveles 3 y 4?\n\n"
-                f"Se actualizarán {len(updates)} sesiones.\n\n"
-                f"El cálculo usa los valores de Tamaño Estándar calculados por departamento.\n\n"
+                f"¿Aplicar cálculo automático de PER para niveles 3 y 4 con Lista Cruzada?\n\n"
+                f"Se actualizarán {len(updates)} sesiones.\n"
+                f"• Sesiones agrupadas: {len(grouped_updates)}\n"
+                f"• Sesiones individuales: {len(individual_updates)}\n\n"
+                f"El cálculo usa Tamaño Estándar y agrupa por Lista Cruzada.\n\n"
                 f"Ejemplo de cambios:\n"
             )
             
-            # Show first 3 examples with more detail
+            # Show first 3 examples with more detail including grouping
             for i, update in enumerate(updates[:3]):
-                confirm_msg += (f"• {update['materia']} ({update['course_type']}): "
-                              f"{update['old_per']} → {update['new_per']} "
-                              f"(TE: {update['tamano_estandar']:.1f}, PE: {update['inscritos']})\n")
+                if update.get('grouped_with'):
+                    confirm_msg += (f"• {update['materia']} ({update['course_type']}): "
+                                  f"{update['old_per']} → {update['new_per']} "
+                                  f"(TE: {update['tamano_estandar']:.1f}, PE combinado: {update['inscritos']}, "
+                                  f"Grupo: {update['grouped_with']})\n")
+                else:
+                    confirm_msg += (f"• {update['materia']} ({update['course_type']}): "
+                                  f"{update['old_per']} → {update['new_per']} "
+                                  f"(TE: {update['tamano_estandar']:.1f}, PE: {update['inscritos']})\n")
             
             if len(updates) > 3:
                 confirm_msg += f"  ... y {len(updates) - 3} más"
@@ -1251,8 +1336,9 @@ class RECOPSimulator:
                 self.show_per_34_calculation_results(updates, tamano_estandar_used)
                 
                 messagebox.showinfo("Cálculo Completado", 
-                                   f"Se actualizaron {updated_count} valores PER para niveles 3 y 4 exitosamente.")
-                self.status_var.set(f"PER niveles 3-4 calculado - {updated_count} sesiones actualizadas")
+                                   f"Se actualizaron {updated_count} valores PER para niveles 3 y 4 exitosamente.\n"
+                                   f"Se utilizó agrupación por Lista Cruzada y Tamaño Estándar.")
+                self.status_var.set(f"PER niveles 3-4 calculado con agrupación - {updated_count} sesiones actualizadas")
             else:
                 messagebox.showerror("Error", "No se pudieron actualizar los valores PER.")
             
@@ -1450,6 +1536,441 @@ class RECOPSimulator:
             
         except Exception as e:
             messagebox.showerror("Error", f"Error al resetear valores PER: {str(e)}")
+            
+    def calculate_horas_promedio_automatic(self):
+        """Calculate both Horas Promedio and Secciones a Tamaño Estándar in unified calculation"""
+        try:
+            # Show information about the unified calculation
+            info_msg = (
+                "El cálculo unificado procesará AMBOS métricas simultáneamente:\n\n"
+                "📊 HORAS PROMEDIO POR SECCIÓN:\n"
+                "• Promedio de horas por dependencia, nivel, tipo profesor y tipo sesión\n\n"
+                "📐 SECCIONES A TAMAÑO ESTÁNDAR:\n"
+                "• Total PER dividido por Tamaño Estándar correspondiente\n"
+                "• Básico e Intermedio: Teórico=30, Práctico=20\n"
+                "• Avanzado: Usa valores calculados de Tamaño Estándar\n\n"
+                "🔧 PROCESAMIENTO:\n"
+                "• Sesiones: MAGISTRAL, TEORICA, LABORATORIO, TALLER Y PBL\n"
+                "• Niveles: Básico e intermedio (1,2) / Avanzado (3,4)\n"
+                "• Incluye dedicaciones de profesores por sección\n"
+                "• Evita duplicación de PER por profesor-sección\n\n"
+                "¿Desea continuar con el cálculo unificado?"
+            )
+            
+            if not messagebox.askyesno("Cálculo Unificado RECOP", info_msg):
+                return
+            
+            # Show progress dialog
+            progress = ProgressDialog(self.root, "Calculando Métricas RECOP", 
+                                     "Procesando estructura unificada...")
+            
+            try:
+                # Get unified statistics
+                stats = self.db_manager.get_unified_recop_statistics()
+                
+                progress.close()
+                
+                if not stats or stats['total_secciones'] == 0:
+                    messagebox.showinfo("Sin datos", "No se encontraron datos para el cálculo unificado.")
+                    return
+                
+                # Show confirmation with summary
+                confirm_msg = (
+                    f"✅ Cálculo Unificado RECOP completado.\n\n"
+                    f"📈 ESTADÍSTICAS PROCESADAS:\n"
+                    f"• Dependencias: {stats['total_dependencias']}\n"
+                    f"• Niveles académicos: {stats['total_niveles']}\n"
+                    f"• Tipos de profesor: {stats['total_tipos_profesor']}\n"
+                    f"• Tipos de sesión: {stats['total_tipos_sesion']}\n"
+                    f"• Secciones procesadas: {stats['total_secciones']}\n\n"
+                    f"🎯 NIVELES: {', '.join(stats['niveles_found'])}\n"
+                    f"👥 PROFESORES: {', '.join(stats['tipos_profesor_found'])}\n"
+                    f"📚 SESIONES: {', '.join(stats['tipos_sesion_found'])}\n\n"
+                    f"¿Desea ver el dashboard unificado con ambas métricas?"
+                )
+                
+                if messagebox.askyesno("Cálculo Completado", confirm_msg):
+                    self.show_unified_recop_dashboard(stats)
+                
+                self.status_var.set(f"RECOP Unificado calculado - {stats['total_secciones']} secciones procesadas")
+                
+            except Exception as e:
+                progress.close()
+                raise e
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Error en cálculo unificado: {str(e)}")
+    
+    def show_unified_recop_dashboard(self, stats):
+        """Show unified dashboard with both Horas Promedio and Secciones a Tamaño Estándar"""
+        # Create dashboard window
+        dashboard_window = tk.Toplevel(self.root)
+        dashboard_window.title("Dashboard RECOP - Horas Promedio y Secciones a Tamaño Estándar")
+        dashboard_window.geometry("1600x1000")  # Larger size for combined view
+        dashboard_window.transient(self.root)
+        dashboard_window.grab_set()
+        
+        # Main frame
+        main_frame = ttk.Frame(dashboard_window, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        title_frame = ttk.Frame(main_frame)
+        title_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        ttk.Label(title_frame, text="🎯 Dashboard RECOP Unificado", 
+                 font=("Arial", 18, "bold")).pack(side=tk.LEFT)
+        
+        ttk.Button(title_frame, text="✕ Cerrar", 
+                  command=dashboard_window.destroy, style="Red.TButton").pack(side=tk.RIGHT)
+        
+        # Create notebook for tabs
+        notebook = ttk.Notebook(main_frame)
+        notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Tab 1: Combined Metrics Table
+        combined_frame = ttk.Frame(notebook)
+        notebook.add(combined_frame, text="📊 Métricas Combinadas")
+        
+        self.create_combined_metrics_tab(combined_frame, stats)
+        
+        # Tab 2: Summary by Dependencia
+        summary_frame = ttk.Frame(notebook)
+        notebook.add(summary_frame, text="📈 Resumen por Dependencia")
+        
+        self.create_dependencia_summary_tab(summary_frame, stats)
+        
+        # Tab 3: Detailed Analysis
+        analysis_frame = ttk.Frame(notebook)
+        notebook.add(analysis_frame, text="🔍 Análisis Detallado")
+        
+        self.create_detailed_analysis_tab(analysis_frame, stats)
+        
+        # Export button
+        export_frame = ttk.Frame(main_frame)
+        export_frame.pack(fill=tk.X, pady=(20, 0))
+        
+        ttk.Button(export_frame, text="📄 Exportar Dashboard Completo", 
+                  command=lambda: self.export_unified_dashboard(stats),
+                  style="Blue.TButton").pack(side=tk.LEFT)
+    
+    def create_combined_metrics_tab(self, parent, stats):
+        """Create the combined metrics table tab"""
+        # Instructions
+        instructions = ttk.Label(parent, 
+                               text="Vista combinada de ambas métricas RECOP por dependencia, nivel, tipo profesor y tipo sesión",
+                               font=("Arial", 11))
+        instructions.pack(pady=(10, 15))
+        
+        # Combined table
+        table_frame = ttk.Frame(parent)
+        table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Columns for combined view
+        columns = ('Dependencia', 'Nivel', 'Tipo Profesor', 'Tipo Sesión', 
+                   'Horas Promedio', 'Secciones/TE', 'Horas', 'Profesores u HC', 'Secciones', 'Profesores', 'TE Usado')
+        tree = ttk.Treeview(table_frame, columns=columns, show='headings', height=20)
+        
+        # Define columns
+        tree.heading('Dependencia', text='Dependencia')
+        tree.heading('Nivel', text='Nivel')
+        tree.heading('Tipo Profesor', text='Tipo Profesor')
+        tree.heading('Tipo Sesión', text='Tipo Sesión')
+        tree.heading('Horas Promedio', text='Horas Promedio')
+        tree.heading('Secciones/TE', text='Secciones/TE')
+        tree.heading('Horas', text='Horas')
+        tree.heading('Profesores u HC', text='Profesores u HC')
+        tree.heading('Secciones', text='Secciones')
+        tree.heading('Profesores', text='Profesores')
+        tree.heading('TE Usado', text='TE Usado')
+        
+        # Column widths
+        tree.column('Dependencia', width=400, stretch=False, anchor='w')
+        tree.column('Nivel', width=150, stretch=False, anchor='w')
+        tree.column('Tipo Profesor', width=180, stretch=False, anchor='w')
+        tree.column('Tipo Sesión', width=100, stretch=False, anchor='w')
+        tree.column('Horas Promedio', width=110, stretch=False, anchor='center')
+        tree.column('Secciones/TE', width=100, stretch=False, anchor='center')
+        tree.column('Horas', width=80, stretch=False, anchor='center')
+        tree.column('Profesores u HC', width = 120, stretch=False, anchor='center')
+        tree.column('Secciones', width=80, stretch=False, anchor='center')
+        tree.column('Profesores', width=80, stretch=False, anchor='center')
+        tree.column('TE Usado', width=80, stretch=False, anchor='center')
+        
+        # Add combined data
+        for dependencia, niveles in stats['combined_metrics'].items():
+            for nivel, tipos_prof in niveles.items():
+                for tipo_prof, tipos_sesion in tipos_prof.items():
+                    for tipo_sesion, data in tipos_sesion.items():
+                        if tipo_prof != 'CÁTEDRA':
+                            tree.insert('', tk.END, values=(
+                                dependencia,
+                                nivel,
+                                tipo_prof,
+                                tipo_sesion,
+                                f"{data['promedio_horas']:.2f}",
+                                f"{data['secciones_tamano_estandar']:.2f}",
+                                f"{data['horas']:.2f}",
+                                f"{data['profesores']:.2f}",
+                                data['num_secciones'],
+                                data['num_profesores'],
+                                f"{data['tamano_estandar_usado']:.1f}"
+                            ))
+                        else:
+                            tree.insert('', tk.END, values=(
+                                dependencia,
+                                nivel,
+                                tipo_prof,
+                                tipo_sesion,
+                                f"{data['promedio_horas']:.2f}",
+                                f"{data['secciones_tamano_estandar']:.2f}",
+                                f"{data['horas']:.2f}",
+                                f"{data['horas']:.2f}",
+                                data['num_secciones'],
+                                data['num_profesores'],
+                                f"{data['tamano_estandar_usado']:.1f}"
+                            ))
+        
+        # Scrollbar
+        v_scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=v_scrollbar.set)
+        
+        h_scrollbar = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL, command=tree.xview)
+        tree.configure(xscrollcommand=h_scrollbar.set)
+        
+        # Grid layout for proper scrollbar positioning
+        tree.grid(row=0, column=0, sticky="nsew")
+        v_scrollbar.grid(row=0, column=1, sticky="ns")
+        h_scrollbar.grid(row=1, column=0, sticky="ew")
+        
+        # Configure grid weights for resizing
+        table_frame.grid_rowconfigure(0, weight=1)
+        table_frame.grid_columnconfigure(0, weight=1)
+    
+    def create_dependencia_summary_tab(self, parent, stats):
+        """Create the dependencia summary tab"""
+        # Summary table
+        table_frame = ttk.Frame(parent)
+        table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        summary_columns = ('Dependencia', 'Nivel', 'Tipos Prof.', 'Total Horas', 'Total PER', 'Secciones')
+        summary_tree = ttk.Treeview(table_frame, columns=summary_columns, show='headings', height=15)
+        
+        # Define summary columns
+        for col in summary_columns:
+            summary_tree.heading(col, text=col)
+            if col == 'Dependencia':
+                summary_tree.column(col, width=250)
+            elif col == 'Nivel':
+                summary_tree.column(col, width=150)
+            else:
+                summary_tree.column(col, width=100)
+        
+        # Add summary data
+        for dependencia, nivel_data in stats['dependencia_summary'].items():
+            for nivel, summary_data in nivel_data.items():
+                if nivel != 'TOTAL':  # Skip total rows for this view
+                    summary_tree.insert('', tk.END, values=(
+                        dependencia,
+                        nivel,
+                        summary_data.get('tipos_profesor', 0),
+                        f"{summary_data['total_horas']:.2f}",
+                        f"{summary_data['total_per']:.2f}",
+                        summary_data['total_secciones']
+                    ))
+        
+        # Scrollbar for summary table
+        summary_scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=summary_tree.yview)
+        summary_tree.configure(yscrollcommand=summary_scrollbar.set)
+        
+        summary_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        summary_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    
+    def create_detailed_analysis_tab(self, parent, stats):
+        """Create detailed analysis tab with statistics"""
+        # Statistics container
+        stats_container = ttk.Frame(parent, padding="20")
+        stats_container.pack(fill=tk.BOTH, expand=True)
+        
+        # Statistics display
+        stats_text = tk.Text(stats_container, wrap=tk.WORD, height=30, width=100)
+        stats_scrollbar = ttk.Scrollbar(stats_container, orient=tk.VERTICAL, command=stats_text.yview)
+        stats_text.configure(yscrollcommand=stats_scrollbar.set)
+        
+        # Generate detailed analysis content
+        analysis_content = self.generate_detailed_analysis_content(stats)
+        stats_text.insert(tk.END, analysis_content)
+        stats_text.config(state=tk.DISABLED)
+        
+        stats_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        stats_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    
+    def generate_detailed_analysis_content(self, stats) -> str:
+        """Generate detailed analysis content for the dashboard"""
+        content = "🎯 ANÁLISIS DETALLADO DEL DASHBOARD RECOP\n"
+        content += "=" * 80 + "\n\n"
+        
+        # General statistics
+        content += "📊 ESTADÍSTICAS GENERALES:\n"
+        content += f"• Total de dependencias procesadas: {stats['total_dependencias']}\n"
+        content += f"• Niveles académicos analizados: {stats['total_niveles']}\n"
+        content += f"• Tipos de profesor encontrados: {stats['total_tipos_profesor']}\n"
+        content += f"• Tipos de sesión procesados: {stats['total_tipos_sesion']}\n"
+        content += f"• Secciones totales procesadas: {stats['total_secciones']}\n\n"
+        
+        # Level breakdown
+        content += "📚 NIVELES ACADÉMICOS:\n"
+        for nivel in stats['niveles_found']:
+            content += f"• {nivel}\n"
+        content += "\n"
+        
+        # Professor types breakdown
+        content += "👥 TIPOS DE PROFESOR:\n"
+        for tipo in stats['tipos_profesor_found']:
+            content += f"• {tipo}\n"
+        content += "\n"
+        
+        # Session types breakdown
+        content += "🎓 TIPOS DE SESIÓN:\n"
+        for tipo in stats['tipos_sesion_found']:
+            content += f"• {tipo}\n"
+        content += "\n"
+        
+        # Metrics analysis by dependencia
+        content += "📈 ANÁLISIS POR DEPENDENCIA:\n"
+        content += "-" * 80 + "\n"
+        
+        for dependencia, nivel_data in stats['dependencia_summary'].items():
+            content += f"\n🏢 {dependencia}:\n"
+            for nivel, data in nivel_data.items():
+                if nivel != 'TOTAL':
+                    content += f"  📍 {nivel}:\n"
+                    content += f"    • Tipos de profesor: {data.get('tipos_profesor', 0)}\n"
+                    content += f"    • Total horas: {data['total_horas']:.2f}\n"
+                    content += f"    • Total PER: {data['total_per']:.2f}\n"
+                    content += f"    • Secciones: {data['total_secciones']}\n"
+        
+        # Top performers analysis
+        content += "\n\n🏆 ANÁLISIS DE RENDIMIENTO:\n"
+        content += "-" * 80 + "\n"
+        
+        # Find top dependencies by hours and PER
+        dep_totals = []
+        for dep, nivel_data in stats['dependencia_summary'].items():
+            if 'TOTAL' in nivel_data:
+                total_data = nivel_data['TOTAL']
+                dep_totals.append((dep, total_data['total_horas'], total_data['total_per'], total_data['total_secciones']))
+        
+        # Sort by total hours
+        dep_totals_by_hours = sorted(dep_totals, key=lambda x: x[1], reverse=True)
+        content += "\n🔥 TOP 5 DEPENDENCIAS POR HORAS TOTALES:\n"
+        for i, (dep, hours, per, sections) in enumerate(dep_totals_by_hours[:5], 1):
+            content += f"{i}. {dep}: {hours:.2f} horas ({sections} secciones)\n"
+        
+        # Sort by total PER
+        dep_totals_by_per = sorted(dep_totals, key=lambda x: x[2], reverse=True)
+        content += "\n📊 TOP 5 DEPENDENCIAS POR PER TOTAL:\n"
+        for i, (dep, hours, per, sections) in enumerate(dep_totals_by_per[:5], 1):
+            content += f"{i}. {dep}: {per:.2f} PER ({sections} secciones)\n"
+        
+        content += "\n" + "=" * 80 + "\n"
+        
+        return content
+    
+    def export_unified_dashboard(self, stats):
+        """Export complete unified dashboard to console"""
+        try:
+            print("\n" + "="*150)
+            print("🎯 DASHBOARD RECOP UNIFICADO - HORAS PROMEDIO Y SECCIONES A TAMAÑO ESTÁNDAR")
+            print("="*150)
+            
+            # Print general statistics
+            print(f"\n📊 ESTADÍSTICAS GENERALES:")
+            print(f"• Total de dependencias: {stats['total_dependencias']}")
+            print(f"• Niveles académicos: {stats['total_niveles']}")
+            print(f"• Tipos de profesor: {stats['total_tipos_profesor']}")
+            print(f"• Tipos de sesión: {stats['total_tipos_sesion']}")
+            print(f"• Secciones procesadas: {stats['total_secciones']}")
+            
+            # Print combined metrics table
+            print(f"\n📈 MÉTRICAS COMBINADAS:")
+            print("-" * 150)
+            print(f"{'DEPENDENCIA':<35} {'NIVEL':<20} {'TIPO PROF':<12} {'TIPO SES':<12} {'HORAS PROM':<12} {'SECC/TE':<10} {'SECCIONES':<10} {'PROFS':<8} {'TE USADO':<8}")
+            print("-" * 150)
+            
+            for dependencia, niveles in stats['combined_metrics'].items():
+                for nivel, tipos_prof in niveles.items():
+                    for tipo_prof, tipos_sesion in tipos_prof.items():
+                        for tipo_sesion, data in tipos_sesion.items():
+                            print(f"{dependencia:<35} {nivel:<20} {tipo_prof:<12} {tipo_sesion:<12} "
+                                  f"{data['promedio_horas']:>10.2f} {data['secciones_tamano_estandar']:>8.2f} "
+                                  f"{data['num_secciones']:>8} {data['num_profesores']:>6} {data['tamano_estandar_usado']:>6.1f}")
+            
+            # Print summary by dependencia
+            print(f"\n📋 RESUMEN POR DEPENDENCIA:")
+            print("-" * 100)
+            print(f"{'DEPENDENCIA':<35} {'NIVEL':<20} {'TOTAL HORAS':<15} {'TOTAL PER':<12} {'SECCIONES':<10}")
+            print("-" * 100)
+            
+            for dependencia, nivel_data in stats['dependencia_summary'].items():
+                for nivel, summary_data in nivel_data.items():
+                    if nivel != 'TOTAL':
+                        print(f"{dependencia:<35} {nivel:<20} {summary_data['total_horas']:>12.2f} "
+                              f"{summary_data['total_per']:>10.2f} {summary_data['total_secciones']:>8}")
+            
+            print("="*150)
+            
+            messagebox.showinfo("Exportado", "El dashboard completo ha sido exportado a la consola.")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al exportar dashboard: {str(e)}")
+    
+        
+        # Add this method to the RECOPSimulator class:
+    
+    def view_unified_recop_dashboard(self):
+        """View the unified RECOP dashboard with both metrics"""
+        try:
+            # Get unified statistics
+            stats = self.db_manager.get_unified_recop_statistics()
+            
+            if not stats or stats['total_secciones'] == 0:
+                messagebox.showinfo("Dashboard RECOP", "No hay datos disponibles para el dashboard unificado.\n\nPrimero debe ejecutar el cálculo unificado.")
+                return
+            
+            # Show the unified dashboard
+            self.show_unified_recop_dashboard(stats)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al obtener datos del dashboard: {str(e)}")
+            
+    def upload_dedication_data(self):
+        """Upload and process dedication data CSV file"""
+        if not self.db_manager:
+            messagebox.showerror("Error", "No hay una base de datos activa.")
+            return
+        
+        try:
+            from ui_components import DedicationDataLinkingDialog
+            
+            def dedication_callback():
+                self.status_var.set("Dedicaciones actualizadas exitosamente")
+                # Refresh database connection status
+                self.check_existing_database()
+            
+            # Open the dedication data linking dialog
+            DedicationDataLinkingDialog(self.root, self.db_manager, dedication_callback)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al procesar datos de dedicación: {str(e)}")
+            
+    def view_dedication_data(self):
+        """Open dedication data viewer dialog"""
+        try:
+            from ui_components import DedicationViewerDialog
+            DedicationViewerDialog(self.root, self.db_manager)
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al abrir visor de dedicaciones: {str(e)}")
     
     def apply_dark_mode_to_widgets(self, parent=None):
         """Apply dark mode colors to regular tkinter widgets"""
